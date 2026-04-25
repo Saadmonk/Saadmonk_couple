@@ -129,12 +129,99 @@ type OnlineTicTacToeState = {
   statusMessage: string
 }
 
+type OnlineMineMatrixState = {
+  phase: 'setup' | 'play' | 'result'
+  ready: [boolean, boolean]
+  plantingSelections: [number[], number[]]
+  mineBoards: [number[], number[]]
+  revealedBoards: [number[], number[]]
+  mineHits: [number, number]
+  currentTurn: PlayerIndex
+  winner: PlayerIndex | null
+  cue: ReactionCue | null
+  statusMessage: string
+}
+
+type OnlineTruthOrDareState = {
+  phase: 'choose' | 'card' | 'result'
+  currentPlayer: PlayerIndex
+  round: number
+  totalRounds: number
+  scores: [number, number]
+  activeCard: TruthOrDareCard | null
+  truthIndex: number
+  dareIndex: number
+  winner: SessionWinner
+  resultSummary: string
+  cue: ReactionCue | null
+  statusMessage: string
+}
+
+type OnlineNeverHaveIState = {
+  phase: 'intro' | 'answer' | 'reveal' | 'result'
+  round: number
+  totalRounds: number
+  promptIndex: number
+  currentPrompt: string
+  answers: [boolean | null, boolean | null]
+  sharedScore: number
+  resultSummary: string
+  cue: ReactionCue | null
+  statusMessage: string
+}
+
+type OnlineCelebrityGuessState = {
+  phase: 'secret' | 'questions' | 'result'
+  chooser: PlayerIndex
+  guesser: PlayerIndex
+  secretCelebrity: string
+  questionCount: number
+  maxQuestions: number
+  pendingQuestion: string | null
+  history: { question: string; answer: CelebrityAnswer }[]
+  winner: PlayerIndex | null
+  resultSummary: string
+  cue: ReactionCue | null
+  statusMessage: string
+}
+
+type OnlineHangmanState = {
+  phase: 'secret' | 'guess' | 'result'
+  setter: PlayerIndex
+  guesser: PlayerIndex
+  word: string
+  guessedLetters: string[]
+  wrongLetters: string[]
+  winner: PlayerIndex | null
+  resultSummary: string
+  cue: ReactionCue | null
+  statusMessage: string
+}
+
+type OnlineDotsBoxesState = {
+  phase: 'play' | 'result'
+  lines: Record<string, PlayerIndex>
+  boxes: Array<PlayerIndex | null>
+  scores: [number, number]
+  currentTurn: PlayerIndex
+  winner: SessionWinner
+  resultSummary: string
+  cue: ReactionCue | null
+  statusMessage: string
+}
+
 type OnlineRoomPayload = {
   players: [string, string]
   colors: [string, string]
   numberDuel: OnlineNumberDuelState | null
   raceDash: OnlineRaceDashState | null
   ticTacToe: OnlineTicTacToeState | null
+  mineMatrix: OnlineMineMatrixState | null
+  truthOrDare: OnlineTruthOrDareState | null
+  neverHaveI: OnlineNeverHaveIState | null
+  celebrityGuess: OnlineCelebrityGuessState | null
+  hangman: OnlineHangmanState | null
+  dotsBoxes: OnlineDotsBoxesState | null
   lastEvent: string
 }
 
@@ -520,12 +607,99 @@ const createOnlineTicTacToe = (): OnlineTicTacToeState => ({
   statusMessage: 'Host moves first.',
 })
 
+const createOnlineMineMatrix = (): OnlineMineMatrixState => ({
+  phase: 'setup',
+  ready: [false, false],
+  plantingSelections: [[], []],
+  mineBoards: [[], []],
+  revealedBoards: [[], []],
+  mineHits: [0, 0],
+  currentTurn: 0,
+  winner: null,
+  cue: createCue(1, 'Plant your mines', 'Each player hides three spots on their own device.', KISS_HEART, 'soft'),
+  statusMessage: 'Waiting for both mine layouts.',
+})
+
+const createOnlineTruthOrDare = (): OnlineTruthOrDareState => ({
+  phase: 'choose',
+  currentPlayer: 0,
+  round: 1,
+  totalRounds: 6,
+  scores: [0, 0],
+  activeCard: null,
+  truthIndex: 0,
+  dareIndex: 0,
+  winner: null,
+  resultSummary: '',
+  cue: createCue(1, 'Pick your card', 'Truth or Dare starts with the host.', KISS_HEART, 'soft'),
+  statusMessage: 'Host chooses Truth or Dare.',
+})
+
+const createOnlineNeverHaveI = (): OnlineNeverHaveIState => ({
+  phase: 'intro',
+  round: 1,
+  totalRounds: 6,
+  promptIndex: 0,
+  currentPrompt: NEVER_HAVE_I_PROMPTS[0],
+  answers: [null, null],
+  sharedScore: 0,
+  resultSummary: '',
+  cue: createCue(1, 'Be honest', 'Both of you answer on your own screens.', THUMBS_UP, 'soft'),
+  statusMessage: 'Read the prompt and get ready to answer.',
+})
+
+const createOnlineCelebrityGuess = (): OnlineCelebrityGuessState => ({
+  phase: 'secret',
+  chooser: 0,
+  guesser: 1,
+  secretCelebrity: '',
+  questionCount: 0,
+  maxQuestions: 6,
+  pendingQuestion: null,
+  history: [],
+  winner: null,
+  resultSummary: '',
+  cue: createCue(0, 'Pick the celebrity', 'The guest will start asking questions after you lock one.', KISS_HEART, 'soft'),
+  statusMessage: 'Host picks the celebrity first.',
+})
+
+const createOnlineHangman = (): OnlineHangmanState => ({
+  phase: 'secret',
+  setter: 0,
+  guesser: 1,
+  word: '',
+  guessedLetters: [],
+  wrongLetters: [],
+  winner: null,
+  resultSummary: '',
+  cue: createCue(0, 'Choose the word', 'The guest will try to rescue you.', THUMBS_UP, 'soft'),
+  statusMessage: 'Host sets the hidden word first.',
+})
+
+const createOnlineDotsBoxes = (): OnlineDotsBoxesState => ({
+  phase: 'play',
+  lines: {},
+  boxes: Array<PlayerIndex | null>(DOTS_SIZE * DOTS_SIZE).fill(null),
+  scores: [0, 0],
+  currentTurn: 0,
+  winner: null,
+  resultSummary: '',
+  cue: createCue(1, 'Board is live', 'Host draws the opening line.', THUMBS_UP, 'soft'),
+  statusMessage: 'Host starts the board.',
+})
+
 const createOnlinePayload = (hostName: string, hostColor: string): OnlineRoomPayload => ({
   players: [hostName, ''],
   colors: [hostColor, PLAYER_COLOR_OPTIONS[1]],
   numberDuel: null,
   raceDash: null,
   ticTacToe: null,
+  mineMatrix: null,
+  truthOrDare: null,
+  neverHaveI: null,
+  celebrityGuess: null,
+  hangman: null,
+  dotsBoxes: null,
   lastEvent: 'Room created',
 })
 
@@ -555,6 +729,30 @@ const readOnlinePayload = (payload: RoomState['payload']): OnlineRoomPayload => 
     ticTacToe:
       value.ticTacToe && typeof value.ticTacToe === 'object'
         ? (value.ticTacToe as OnlineTicTacToeState)
+        : null,
+    mineMatrix:
+      value.mineMatrix && typeof value.mineMatrix === 'object'
+        ? (value.mineMatrix as OnlineMineMatrixState)
+        : null,
+    truthOrDare:
+      value.truthOrDare && typeof value.truthOrDare === 'object'
+        ? (value.truthOrDare as OnlineTruthOrDareState)
+        : null,
+    neverHaveI:
+      value.neverHaveI && typeof value.neverHaveI === 'object'
+        ? (value.neverHaveI as OnlineNeverHaveIState)
+        : null,
+    celebrityGuess:
+      value.celebrityGuess && typeof value.celebrityGuess === 'object'
+        ? (value.celebrityGuess as OnlineCelebrityGuessState)
+        : null,
+    hangman:
+      value.hangman && typeof value.hangman === 'object'
+        ? (value.hangman as OnlineHangmanState)
+        : null,
+    dotsBoxes:
+      value.dotsBoxes && typeof value.dotsBoxes === 'object'
+        ? (value.dotsBoxes as OnlineDotsBoxesState)
         : null,
     lastEvent: typeof value.lastEvent === 'string' ? value.lastEvent : '',
   }
@@ -1979,6 +2177,1022 @@ function App() {
     }
   }
 
+  const startOnlineMineMatrix = async () => {
+    if (!onlineSession || onlineSession.role !== 'host') {
+      return
+    }
+
+    const payload: OnlineRoomPayload = {
+      ...readOnlinePayload(onlineSession.roomState.payload),
+      numberDuel: null,
+      raceDash: null,
+      ticTacToe: null,
+      truthOrDare: null,
+      neverHaveI: null,
+      celebrityGuess: null,
+      hangman: null,
+      dotsBoxes: null,
+      mineMatrix: createOnlineMineMatrix(),
+      lastEvent: 'Online Mine Matrix started.',
+    }
+
+    setOnlineBusyAction('start')
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(payload, 'mine-matrix', 'setup', 'both'), {
+        game_key: 'mine-matrix',
+        status: 'playing',
+      })
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start Online Mine Matrix.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const toggleOnlineMineSelection = async (cell: number) => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.mineMatrix
+    if (!game || game.phase !== 'setup' || game.ready[currentOnlinePlayerIndex]) {
+      return
+    }
+
+    const selections = [...game.plantingSelections] as [number[], number[]]
+    const currentSelections = selections[currentOnlinePlayerIndex]
+    if (includesCell(currentSelections, cell)) {
+      selections[currentOnlinePlayerIndex] = currentSelections.filter((value) => value !== cell)
+    } else if (currentSelections.length < 3) {
+      selections[currentOnlinePlayerIndex] = [...currentSelections, cell]
+    } else {
+      return
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            mineMatrix: {
+              ...game,
+              plantingSelections: selections,
+              statusMessage: `${onlinePlayerName(currentOnlinePlayerIndex)} is placing mines.`,
+            },
+            lastEvent: `${onlinePlayerName(currentOnlinePlayerIndex)} is placing mines.`,
+          },
+          'mine-matrix',
+          'setup',
+          'both',
+        ),
+        { game_key: 'mine-matrix', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not update mine placement.')
+    }
+  }
+
+  const confirmOnlineMineSetup = async () => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.mineMatrix
+    if (!game || game.phase !== 'setup') {
+      return
+    }
+
+    const selections = game.plantingSelections[currentOnlinePlayerIndex]
+    if (selections.length !== 3) {
+      return
+    }
+
+    const ready = [...game.ready] as [boolean, boolean]
+    ready[currentOnlinePlayerIndex] = true
+    const mineBoards = [...game.mineBoards] as [number[], number[]]
+    mineBoards[currentOnlinePlayerIndex] = [...selections]
+
+    const nextGame: OnlineMineMatrixState = {
+      ...game,
+      ready,
+      mineBoards,
+      cue: createCue(currentOnlinePlayerIndex, 'Board locked', 'Waiting for the other player.', THUMBS_UP, 'soft'),
+      statusMessage:
+        ready[0] && ready[1]
+          ? `${onlinePlayerName(0)} begins the guessing round.`
+          : `${onlinePlayerName(currentOnlinePlayerIndex)} locked a board.`,
+    }
+
+    if (ready[0] && ready[1]) {
+      nextGame.phase = 'play'
+      nextGame.currentTurn = 0
+      nextGame.cue = createCue(1, 'All mines are hidden', 'Host takes the first bite.', KISS_HEART, 'soft')
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            mineMatrix: nextGame,
+            lastEvent: `${onlinePlayerName(currentOnlinePlayerIndex)} locked a mine layout.`,
+          },
+          'mine-matrix',
+          nextGame.phase,
+          ready[0] && ready[1] ? turnForPlayer(0) : 'both',
+        ),
+        { game_key: 'mine-matrix', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not lock the mine layout.')
+    }
+  }
+
+  const revealOnlineMineCell = async (cell: number) => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.mineMatrix
+    if (!game || game.phase !== 'play' || game.currentTurn !== currentOnlinePlayerIndex) {
+      return
+    }
+
+    const attacker = currentOnlinePlayerIndex
+    const defender = partnerOf(attacker)
+    if (includesCell(game.revealedBoards[defender], cell)) {
+      return
+    }
+
+    const revealedBoards = [...game.revealedBoards] as [number[], number[]]
+    revealedBoards[defender] = [...revealedBoards[defender], cell]
+    const mineHits = [...game.mineHits] as [number, number]
+    const hitMine = includesCell(game.mineBoards[defender], cell)
+    if (hitMine) {
+      mineHits[attacker] += 1
+    }
+
+    if (hitMine && mineHits[attacker] >= 3) {
+      const winner = defender
+      const nextGame: OnlineMineMatrixState = {
+        ...game,
+        phase: 'result',
+        revealedBoards,
+        mineHits,
+        winner,
+        cue: createCue(winner, 'Final strike', 'Safe and steady wins this one.', KISS_HEART, 'win'),
+        statusMessage: `${onlinePlayerName(winner)} wins Online Mine Matrix.`,
+      }
+
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState(
+            { ...payload, mineMatrix: nextGame, lastEvent: `${onlinePlayerName(winner)} won Online Mine Matrix.` },
+            'mine-matrix',
+            'result',
+            'both',
+          ),
+          { game_key: 'mine-matrix', status: 'finished' },
+        )
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not finish Mine Matrix.')
+      }
+      return
+    }
+
+    const nextTurn = defender
+    const nextGame: OnlineMineMatrixState = {
+      ...game,
+      revealedBoards,
+      mineHits,
+      currentTurn: nextTurn,
+      cue: createCue(
+        defender,
+        hitMine ? 'Boom' : 'Safe',
+        hitMine ? 'That bite hurt.' : 'Nice dodge.',
+        hitMine ? MINE_ICON : KISS_HEART,
+        hitMine ? 'warning' : 'success',
+      ),
+      statusMessage: `${onlinePlayerName(nextTurn)} is up next.`,
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          { ...payload, mineMatrix: nextGame, lastEvent: `${onlinePlayerName(attacker)} revealed a cell.` },
+          'mine-matrix',
+          'play',
+          turnForPlayer(nextTurn),
+        ),
+        { game_key: 'mine-matrix', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not reveal that cell.')
+    }
+  }
+
+  const startOnlineTruthOrDare = async () => {
+    if (!onlineSession || onlineSession.role !== 'host') {
+      return
+    }
+
+    const payload: OnlineRoomPayload = {
+      ...readOnlinePayload(onlineSession.roomState.payload),
+      numberDuel: null,
+      raceDash: null,
+      ticTacToe: null,
+      mineMatrix: null,
+      neverHaveI: null,
+      celebrityGuess: null,
+      hangman: null,
+      dotsBoxes: null,
+      truthOrDare: createOnlineTruthOrDare(),
+      lastEvent: 'Online Truth or Dare started.',
+    }
+
+    setOnlineBusyAction('start')
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(payload, 'truth-dare', 'choose', turnForPlayer(0)), {
+        game_key: 'truth-dare',
+        status: 'playing',
+      })
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start Online Truth or Dare.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const drawOnlineTruthOrDareCard = async (kind: TruthKind) => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.truthOrDare
+    if (!game || game.phase !== 'choose' || game.currentPlayer !== currentOnlinePlayerIndex) {
+      return
+    }
+
+    const prompt =
+      kind === 'Truth'
+        ? TRUTH_PROMPTS[game.truthIndex % TRUTH_PROMPTS.length]
+        : DARE_PROMPTS[game.dareIndex % DARE_PROMPTS.length]
+    const nextGame: OnlineTruthOrDareState = {
+      ...game,
+      phase: 'card',
+      activeCard: { kind, prompt },
+      truthIndex: kind === 'Truth' ? game.truthIndex + 1 : game.truthIndex,
+      dareIndex: kind === 'Dare' ? game.dareIndex + 1 : game.dareIndex,
+      cue: createCue(
+        partnerOf(currentOnlinePlayerIndex),
+        kind === 'Truth' ? 'Tell the truth' : 'I dare you',
+        'Complete the card when you are done.',
+        KISS_HEART,
+        kind === 'Truth' ? 'truth' : 'dare',
+      ),
+      statusMessage: `${onlinePlayerName(currentOnlinePlayerIndex)} drew a ${kind} card.`,
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          { ...payload, truthOrDare: nextGame, lastEvent: `${onlinePlayerName(currentOnlinePlayerIndex)} drew ${kind}.` },
+          'truth-dare',
+          'card',
+          turnForPlayer(currentOnlinePlayerIndex),
+        ),
+        { game_key: 'truth-dare', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not draw the card.')
+    }
+  }
+
+  const completeOnlineTruthOrDareCard = async () => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.truthOrDare
+    if (!game || game.phase !== 'card' || game.currentPlayer !== currentOnlinePlayerIndex) {
+      return
+    }
+
+    const scores = [...game.scores] as [number, number]
+    scores[currentOnlinePlayerIndex] += 1
+    const isLastRound = game.round >= game.totalRounds
+
+    if (isLastRound) {
+      const winner: SessionWinner = scores[0] === scores[1] ? 'both' : scores[0] > scores[1] ? 0 : 1
+      const summary =
+        winner === 'both'
+          ? 'Both players finished Truth or Dare tied.'
+          : `${onlinePlayerName(winner)} wins Online Truth or Dare ${scores[0]}-${scores[1]}.`
+      const nextGame: OnlineTruthOrDareState = {
+        ...game,
+        scores,
+        phase: 'result',
+        winner,
+        resultSummary: summary,
+        cue: createCue(currentOnlinePlayerIndex, 'Session complete', 'That was a fun one.', KISS_HEART, 'win'),
+        statusMessage: summary,
+      }
+
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState(
+            { ...payload, truthOrDare: nextGame, lastEvent: summary },
+            'truth-dare',
+            'result',
+            'both',
+          ),
+          { game_key: 'truth-dare', status: 'finished' },
+        )
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not finish Truth or Dare.')
+      }
+      return
+    }
+
+    const nextPlayer = partnerOf(currentOnlinePlayerIndex)
+    const nextGame: OnlineTruthOrDareState = {
+      ...game,
+      scores,
+      currentPlayer: nextPlayer,
+      round: game.round + 1,
+      phase: 'choose',
+      activeCard: null,
+      cue: createCue(currentOnlinePlayerIndex, 'Good job', `${onlinePlayerName(nextPlayer)} is up next.`, THUMBS_UP, 'success'),
+      statusMessage: `${onlinePlayerName(nextPlayer)} chooses next.`,
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          { ...payload, truthOrDare: nextGame, lastEvent: `${onlinePlayerName(currentOnlinePlayerIndex)} completed a card.` },
+          'truth-dare',
+          'choose',
+          turnForPlayer(nextPlayer),
+        ),
+        { game_key: 'truth-dare', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not advance the round.')
+    }
+  }
+
+  const startOnlineNeverHaveI = async () => {
+    if (!onlineSession || onlineSession.role !== 'host') {
+      return
+    }
+    const payload: OnlineRoomPayload = {
+      ...readOnlinePayload(onlineSession.roomState.payload),
+      numberDuel: null,
+      raceDash: null,
+      ticTacToe: null,
+      mineMatrix: null,
+      truthOrDare: null,
+      celebrityGuess: null,
+      hangman: null,
+      dotsBoxes: null,
+      neverHaveI: createOnlineNeverHaveI(),
+      lastEvent: 'Online Never Have I Ever started.',
+    }
+    setOnlineBusyAction('start')
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(payload, 'never-have-i-ever', 'intro', 'both'), {
+        game_key: 'never-have-i-ever',
+        status: 'playing',
+      })
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start Online Never Have I Ever.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const beginOnlineNeverHaveI = async () => {
+    if (!onlineSession) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.neverHaveI
+    if (!game || game.phase !== 'intro') {
+      return
+    }
+    const nextGame: OnlineNeverHaveIState = {
+      ...game,
+      phase: 'answer',
+      cue: createCue(1, 'Answer privately', 'Both answers reveal together.', THUMBS_UP, 'soft'),
+      statusMessage: 'Both players answer on their own screens.',
+    }
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState({ ...payload, neverHaveI: nextGame, lastEvent: 'Both players are answering.' }, 'never-have-i-ever', 'answer', 'both'),
+        { game_key: 'never-have-i-ever', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start answers.')
+    }
+  }
+
+  const answerOnlineNeverHaveI = async (hasDoneIt: boolean) => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.neverHaveI
+    if (!game || game.phase !== 'answer' || game.answers[currentOnlinePlayerIndex] !== null) {
+      return
+    }
+    const answers = [...game.answers] as [boolean | null, boolean | null]
+    answers[currentOnlinePlayerIndex] = hasDoneIt
+    const bothAnswered = answers[0] !== null && answers[1] !== null
+    const sharedScore = bothAnswered ? game.sharedScore + (answers[0] === answers[1] ? 2 : 1) : game.sharedScore
+
+    const nextGame: OnlineNeverHaveIState = {
+      ...game,
+      answers,
+      sharedScore,
+      phase: bothAnswered ? 'reveal' : 'answer',
+      cue: bothAnswered
+        ? createCue(
+            1,
+            answers[0] === answers[1] ? 'Same answer' : 'Different stories',
+            answers[0] === answers[1] ? 'You two are in sync.' : 'Still learning new layers.',
+            answers[0] === answers[1] ? KISS_HEART : THUMBS_UP,
+            answers[0] === answers[1] ? 'success' : 'soft',
+          )
+        : createCue(currentOnlinePlayerIndex, 'Answer saved', 'Waiting for your partner.', THUMBS_UP, 'soft'),
+      statusMessage: bothAnswered ? 'Both answers are in.' : `${onlinePlayerName(currentOnlinePlayerIndex)} answered.`,
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          { ...payload, neverHaveI: nextGame, lastEvent: `${onlinePlayerName(currentOnlinePlayerIndex)} answered the prompt.` },
+          'never-have-i-ever',
+          nextGame.phase,
+          'both',
+        ),
+        { game_key: 'never-have-i-ever', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not save that answer.')
+    }
+  }
+
+  const advanceOnlineNeverHaveI = async () => {
+    if (!onlineSession) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.neverHaveI
+    if (!game) {
+      return
+    }
+
+    if (game.round >= game.totalRounds) {
+      const summary = `You completed ${game.totalRounds} prompts and built a shared score of ${game.sharedScore}.`
+      const nextGame: OnlineNeverHaveIState = {
+        ...game,
+        phase: 'result',
+        resultSummary: summary,
+        cue: createCue(1, 'That was sweet', 'You kept learning about each other.', KISS_HEART, 'win'),
+        statusMessage: summary,
+      }
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState({ ...payload, neverHaveI: nextGame, lastEvent: summary }, 'never-have-i-ever', 'result', 'both'),
+          { game_key: 'never-have-i-ever', status: 'finished' },
+        )
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not finish Never Have I Ever.')
+      }
+      return
+    }
+
+    const nextPromptIndex = game.promptIndex + 1
+    const nextGame: OnlineNeverHaveIState = {
+      ...game,
+      round: game.round + 1,
+      promptIndex: nextPromptIndex,
+      currentPrompt: NEVER_HAVE_I_PROMPTS[nextPromptIndex % NEVER_HAVE_I_PROMPTS.length],
+      answers: [null, null],
+      phase: 'intro',
+      cue: createCue(1, 'Next one', 'Ready for another reveal?', THUMBS_UP, 'soft'),
+      statusMessage: 'Next prompt ready.',
+    }
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState({ ...payload, neverHaveI: nextGame, lastEvent: 'Next prompt ready.' }, 'never-have-i-ever', 'intro', 'both'),
+        { game_key: 'never-have-i-ever', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not advance the prompt.')
+    }
+  }
+
+  const startOnlineCelebrityGuess = async () => {
+    if (!onlineSession || onlineSession.role !== 'host') {
+      return
+    }
+    const payload: OnlineRoomPayload = {
+      ...readOnlinePayload(onlineSession.roomState.payload),
+      numberDuel: null,
+      raceDash: null,
+      ticTacToe: null,
+      mineMatrix: null,
+      truthOrDare: null,
+      neverHaveI: null,
+      hangman: null,
+      dotsBoxes: null,
+      celebrityGuess: createOnlineCelebrityGuess(),
+      lastEvent: 'Online Celebrity Guess started.',
+    }
+    setOnlineBusyAction('start')
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(payload, 'celebrity-guess', 'secret', turnForPlayer(0)), {
+        game_key: 'celebrity-guess',
+        status: 'playing',
+      })
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start Online Celebrity Guess.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const chooseOnlineCelebrity = async (celebrity: string) => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.celebrityGuess
+    if (!game || game.phase !== 'secret' || game.chooser !== currentOnlinePlayerIndex) {
+      return
+    }
+    const nextGame: OnlineCelebrityGuessState = {
+      ...game,
+      phase: 'questions',
+      secretCelebrity: celebrity,
+      cue: createCue(game.chooser, 'Celebrity locked', 'Start asking clue questions.', KISS_HEART, 'soft'),
+      statusMessage: `${onlinePlayerName(game.guesser)} is guessing.`,
+    }
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState({ ...payload, celebrityGuess: nextGame, lastEvent: 'Celebrity locked in.' }, 'celebrity-guess', 'questions', turnForPlayer(game.guesser)),
+        { game_key: 'celebrity-guess', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not lock the celebrity.')
+    }
+  }
+
+  const pickOnlineCelebrityQuestion = async (question: string) => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.celebrityGuess
+    if (!game || game.phase !== 'questions' || game.guesser !== currentOnlinePlayerIndex) {
+      return
+    }
+    const nextGame: OnlineCelebrityGuessState = {
+      ...game,
+      pendingQuestion: question,
+      statusMessage: `${onlinePlayerName(game.chooser)} is answering a clue question.`,
+    }
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState({ ...payload, celebrityGuess: nextGame, lastEvent: `${onlinePlayerName(game.guesser)} asked a question.` }, 'celebrity-guess', 'questions', turnForPlayer(game.chooser)),
+        { game_key: 'celebrity-guess', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not ask that question.')
+    }
+  }
+
+  const answerOnlineCelebrityQuestion = async (answer: CelebrityAnswer) => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.celebrityGuess
+    if (!game || game.phase !== 'questions' || game.chooser !== currentOnlinePlayerIndex || !game.pendingQuestion) {
+      return
+    }
+    const history = [...game.history, { question: game.pendingQuestion, answer }].slice(-8)
+    const nextGame: OnlineCelebrityGuessState = {
+      ...game,
+      history,
+      questionCount: game.questionCount + 1,
+      pendingQuestion: null,
+      cue: createCue(
+        game.chooser,
+        answer,
+        answer === 'Yes' ? 'That should help.' : answer === 'No' ? 'Cross that path off.' : 'A little in-between.',
+        answer === 'Yes' ? KISS_HEART : THUMBS_UP,
+        answer === 'Yes' ? 'success' : 'soft',
+      ),
+      statusMessage: `${onlinePlayerName(game.guesser)} can guess now or ask another question.`,
+    }
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState({ ...payload, celebrityGuess: nextGame, lastEvent: `${onlinePlayerName(game.chooser)} answered a clue question.` }, 'celebrity-guess', 'questions', turnForPlayer(game.guesser)),
+        { game_key: 'celebrity-guess', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not save that answer.')
+    }
+  }
+
+  const submitOnlineCelebrityGuess = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.celebrityGuess
+    if (!game || game.phase !== 'questions' || game.guesser !== currentOnlinePlayerIndex) {
+      return
+    }
+    const normalizedGuess = normalizeText(celebGuessDraft)
+    if (!normalizedGuess) {
+      return
+    }
+    const normalizedSecret = normalizeText(game.secretCelebrity)
+    if (normalizedGuess === normalizedSecret) {
+      const winner = game.guesser
+      const summary = `${onlinePlayerName(winner)} guessed ${game.secretCelebrity} correctly.`
+      const nextGame: OnlineCelebrityGuessState = {
+        ...game,
+        phase: 'result',
+        winner,
+        resultSummary: summary,
+        cue: createCue(winner, 'Correct', 'That was a sharp read.', KISS_HEART, 'win'),
+        statusMessage: summary,
+      }
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState({ ...payload, celebrityGuess: nextGame, lastEvent: summary }, 'celebrity-guess', 'result', 'both'),
+          { game_key: 'celebrity-guess', status: 'finished' },
+        )
+        setCelebGuessDraft('')
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not save that guess.')
+      }
+      return
+    }
+
+    if (game.questionCount >= game.maxQuestions) {
+      const winner = game.chooser
+      const summary = `${onlinePlayerName(winner)} protected the celebrity identity.`
+      const nextGame: OnlineCelebrityGuessState = {
+        ...game,
+        phase: 'result',
+        winner,
+        resultSummary: summary,
+        cue: createCue(winner, 'Not this time', `The answer was ${game.secretCelebrity}.`, THUMBS_UP, 'warning'),
+        statusMessage: summary,
+      }
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState({ ...payload, celebrityGuess: nextGame, lastEvent: summary }, 'celebrity-guess', 'result', 'both'),
+          { game_key: 'celebrity-guess', status: 'finished' },
+        )
+        setCelebGuessDraft('')
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not finish Celebrity Guess.')
+      }
+      return
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            celebrityGuess: {
+              ...game,
+              cue: createCue(game.chooser, 'Not quite', 'Ask a few more questions.', THUMBS_UP, 'warning'),
+              statusMessage: 'Guess was wrong. Keep narrowing it down.',
+            },
+            lastEvent: `${onlinePlayerName(game.guesser)} made a wrong guess.`,
+          },
+          'celebrity-guess',
+          'questions',
+          turnForPlayer(game.guesser),
+        ),
+        { game_key: 'celebrity-guess', status: 'playing' },
+      )
+      setCelebGuessDraft('')
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not keep Celebrity Guess moving.')
+    }
+  }
+
+  const startOnlineHangman = async () => {
+    if (!onlineSession || onlineSession.role !== 'host') {
+      return
+    }
+    const payload: OnlineRoomPayload = {
+      ...readOnlinePayload(onlineSession.roomState.payload),
+      numberDuel: null,
+      raceDash: null,
+      ticTacToe: null,
+      mineMatrix: null,
+      truthOrDare: null,
+      neverHaveI: null,
+      celebrityGuess: null,
+      dotsBoxes: null,
+      hangman: createOnlineHangman(),
+      lastEvent: 'Online Hangman started.',
+    }
+    setOnlineBusyAction('start')
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(payload, 'hangman', 'secret', turnForPlayer(0)), {
+        game_key: 'hangman',
+        status: 'playing',
+      })
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start Online Hangman.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const lockOnlineHangmanWord = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.hangman
+    if (!game || game.phase !== 'secret' || game.setter !== currentOnlinePlayerIndex) {
+      return
+    }
+    const cleaned = hangmanWordDraft.toUpperCase().replace(/[^A-Z ]/g, '').replace(/\s+/g, ' ').trim()
+    if (cleaned.length < 3) {
+      return
+    }
+    const nextGame: OnlineHangmanState = {
+      ...game,
+      phase: 'guess',
+      word: cleaned,
+      cue: createCue(game.setter, 'Save me', 'Guess the last word before the rope wins.', THUMBS_UP, 'soft'),
+      statusMessage: `${onlinePlayerName(game.guesser)} is guessing now.`,
+    }
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState({ ...payload, hangman: nextGame, lastEvent: 'Hangman word locked.' }, 'hangman', 'guess', turnForPlayer(game.guesser)),
+        { game_key: 'hangman', status: 'playing' },
+      )
+      setHangmanWordDraft('')
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not lock the word.')
+    }
+  }
+
+  const submitOnlineHangmanGuess = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.hangman
+    if (!game || game.phase !== 'guess' || game.guesser !== currentOnlinePlayerIndex) {
+      return
+    }
+    const letter = hangmanLetterDraft.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1)
+    if (!letter) {
+      return
+    }
+    if (game.guessedLetters.includes(letter) || game.wrongLetters.includes(letter)) {
+      setHangmanLetterDraft('')
+      return
+    }
+    const wordLetters = [...new Set(game.word.replace(/ /g, '').split(''))]
+    if (game.word.includes(letter)) {
+      const guessedLetters = [...game.guessedLetters, letter]
+      const guessedAll = wordLetters.every((value) => guessedLetters.includes(value))
+      if (guessedAll) {
+        const winner = game.guesser
+        const summary = `${onlinePlayerName(winner)} solved "${game.word}".`
+        const nextGame: OnlineHangmanState = {
+          ...game,
+          guessedLetters,
+          phase: 'result',
+          winner,
+          resultSummary: summary,
+          cue: createCue(winner, 'Solved it', 'That final letter was perfect.', KISS_HEART, 'win'),
+          statusMessage: summary,
+        }
+        try {
+          await syncOnlineRoomState(
+            buildOnlineRoomState({ ...payload, hangman: nextGame, lastEvent: summary }, 'hangman', 'result', 'both'),
+            { game_key: 'hangman', status: 'finished' },
+          )
+          setHangmanLetterDraft('')
+        } catch (error) {
+          setOnlineError(error instanceof Error ? error.message : 'Could not finish Hangman.')
+        }
+        return
+      }
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState(
+            {
+              ...payload,
+              hangman: {
+                ...game,
+                guessedLetters,
+                cue: createCue(game.setter, 'Okay, that helps', 'Keep going, rescue montage mode.', KISS_HEART, 'success'),
+                statusMessage: 'Correct letter.',
+              },
+              lastEvent: `${onlinePlayerName(game.guesser)} found a correct letter.`,
+            },
+            'hangman',
+            'guess',
+            turnForPlayer(game.guesser),
+          ),
+          { game_key: 'hangman', status: 'playing' },
+        )
+        setHangmanLetterDraft('')
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not save that letter.')
+      }
+      return
+    }
+    const wrongLetters = [...game.wrongLetters, letter]
+    if (wrongLetters.length >= 6) {
+      const winner = game.setter
+      const summary = `${onlinePlayerName(winner)} kept "${game.word}" hidden.`
+      const nextGame: OnlineHangmanState = {
+        ...game,
+        wrongLetters,
+        phase: 'result',
+        winner,
+        resultSummary: summary,
+        cue: createCue(winner, 'Too many misses', `The word was ${game.word}.`, THUMBS_UP, 'warning'),
+        statusMessage: summary,
+      }
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState({ ...payload, hangman: nextGame, lastEvent: summary }, 'hangman', 'result', 'both'),
+          { game_key: 'hangman', status: 'finished' },
+        )
+        setHangmanLetterDraft('')
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not finish Hangman.')
+      }
+      return
+    }
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            hangman: {
+              ...game,
+              wrongLetters,
+              cue: getHangmanMissCue(game.setter, wrongLetters.length),
+              statusMessage: 'Wrong letter. Keep trying.',
+            },
+            lastEvent: `${onlinePlayerName(game.guesser)} missed a letter.`,
+          },
+          'hangman',
+          'guess',
+          turnForPlayer(game.guesser),
+        ),
+        { game_key: 'hangman', status: 'playing' },
+      )
+      setHangmanLetterDraft('')
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not save that miss.')
+    }
+  }
+
+  const startOnlineDotsBoxes = async () => {
+    if (!onlineSession || onlineSession.role !== 'host') {
+      return
+    }
+    const payload: OnlineRoomPayload = {
+      ...readOnlinePayload(onlineSession.roomState.payload),
+      numberDuel: null,
+      raceDash: null,
+      ticTacToe: null,
+      mineMatrix: null,
+      truthOrDare: null,
+      neverHaveI: null,
+      celebrityGuess: null,
+      hangman: null,
+      dotsBoxes: createOnlineDotsBoxes(),
+      lastEvent: 'Online Dots and Boxes started.',
+    }
+    setOnlineBusyAction('start')
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(payload, 'dots-boxes', 'play', turnForPlayer(0)), {
+        game_key: 'dots-boxes',
+        status: 'playing',
+      })
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start Online Dots and Boxes.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const playOnlineDotsLine = async (key: string) => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.dotsBoxes
+    if (!game || game.phase !== 'play' || key in game.lines || game.currentTurn !== currentOnlinePlayerIndex) {
+      return
+    }
+    const lines = { ...game.lines, [key]: currentOnlinePlayerIndex }
+    const boxes = [...game.boxes]
+    const scores = [...game.scores] as [number, number]
+    const completedBoxes = getAffectedBoxesForLine(key).filter(
+      (boxIndex) => boxes[boxIndex] === null && isBoxComplete(lines, boxIndex),
+    )
+
+    if (completedBoxes.length > 0) {
+      for (const boxIndex of completedBoxes) {
+        boxes[boxIndex] = currentOnlinePlayerIndex
+      }
+      scores[currentOnlinePlayerIndex] += completedBoxes.length
+      if (boxes.every((box) => box !== null)) {
+        const winner: SessionWinner = scores[0] === scores[1] ? 'draw' : scores[0] > scores[1] ? 0 : 1
+        const summary =
+          winner === 'draw'
+            ? `Online Dots and Boxes ended tied at ${scores[0]}-${scores[1]}.`
+            : `${onlinePlayerName(winner as PlayerIndex)} won Online Dots and Boxes ${scores[0]}-${scores[1]}.`
+        const nextGame: OnlineDotsBoxesState = {
+          ...game,
+          lines,
+          boxes,
+          scores,
+          phase: 'result',
+          winner,
+          resultSummary: summary,
+          cue: createCue(currentOnlinePlayerIndex, winner === 'draw' ? 'Final box claimed' : 'Board complete', 'That finished the board.', KISS_HEART, 'win'),
+          statusMessage: summary,
+        }
+        try {
+          await syncOnlineRoomState(
+            buildOnlineRoomState({ ...payload, dotsBoxes: nextGame, lastEvent: summary }, 'dots-boxes', 'result', 'both'),
+            { game_key: 'dots-boxes', status: 'finished' },
+          )
+        } catch (error) {
+          setOnlineError(error instanceof Error ? error.message : 'Could not finish Dots and Boxes.')
+        }
+        return
+      }
+      const nextGame: OnlineDotsBoxesState = {
+        ...game,
+        lines,
+        boxes,
+        scores,
+        cue: createCue(currentOnlinePlayerIndex, completedBoxes.length > 1 ? 'Double box' : 'Box claimed', 'You keep the turn.', KISS_HEART, 'success'),
+        statusMessage: `${onlinePlayerName(currentOnlinePlayerIndex)} keeps the turn.`,
+      }
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState({ ...payload, dotsBoxes: nextGame, lastEvent: `${onlinePlayerName(currentOnlinePlayerIndex)} claimed a box.` }, 'dots-boxes', 'play', turnForPlayer(currentOnlinePlayerIndex)),
+          { game_key: 'dots-boxes', status: 'playing' },
+        )
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not save that line.')
+      }
+      return
+    }
+
+    const nextTurn = partnerOf(currentOnlinePlayerIndex)
+    const nextGame: OnlineDotsBoxesState = {
+      ...game,
+      lines,
+      boxes,
+      scores,
+      currentTurn: nextTurn,
+      cue: createCue(nextTurn, 'Line added', `${onlinePlayerName(nextTurn)} is up.`, THUMBS_UP, 'soft'),
+      statusMessage: `${onlinePlayerName(nextTurn)} is up next.`,
+    }
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState({ ...payload, dotsBoxes: nextGame, lastEvent: `${onlinePlayerName(currentOnlinePlayerIndex)} drew a line.` }, 'dots-boxes', 'play', turnForPlayer(nextTurn)),
+        { game_key: 'dots-boxes', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not save that line.')
+    }
+  }
+
   const savePlayers = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -3088,6 +4302,12 @@ function App() {
   const onlineNumberDuel = onlinePayload?.numberDuel ?? null
   const onlineRaceDash = onlinePayload?.raceDash ?? null
   const onlineTicTacToe = onlinePayload?.ticTacToe ?? null
+  const onlineMineMatrix = onlinePayload?.mineMatrix ?? null
+  const onlineTruthOrDare = onlinePayload?.truthOrDare ?? null
+  const onlineNeverHaveI = onlinePayload?.neverHaveI ?? null
+  const onlineCelebrityGuess = onlinePayload?.celebrityGuess ?? null
+  const onlineHangman = onlinePayload?.hangman ?? null
+  const onlineDotsBoxes = onlinePayload?.dotsBoxes ?? null
   const onlineRaceStartsAt = onlineRaceDash ? new Date(onlineRaceDash.startsAt).getTime() : 0
   const onlineRaceEndsAt = onlineRaceDash ? new Date(onlineRaceDash.endsAt).getTime() : 0
   const onlineRacePhase =
@@ -3553,6 +4773,78 @@ function App() {
                     >
                       {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Tic Tac Toe'}
                     </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={startOnlineMineMatrix}
+                      disabled={
+                        onlineSession.role !== 'host' ||
+                        !onlineSession.players[1] ||
+                        onlineBusyAction !== null
+                      }
+                    >
+                      {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Mine Matrix'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={startOnlineTruthOrDare}
+                      disabled={
+                        onlineSession.role !== 'host' ||
+                        !onlineSession.players[1] ||
+                        onlineBusyAction !== null
+                      }
+                    >
+                      {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Truth or Dare'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={startOnlineNeverHaveI}
+                      disabled={
+                        onlineSession.role !== 'host' ||
+                        !onlineSession.players[1] ||
+                        onlineBusyAction !== null
+                      }
+                    >
+                      {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Never Have I Ever'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={startOnlineCelebrityGuess}
+                      disabled={
+                        onlineSession.role !== 'host' ||
+                        !onlineSession.players[1] ||
+                        onlineBusyAction !== null
+                      }
+                    >
+                      {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Celebrity Guess'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={startOnlineHangman}
+                      disabled={
+                        onlineSession.role !== 'host' ||
+                        !onlineSession.players[1] ||
+                        onlineBusyAction !== null
+                      }
+                    >
+                      {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Hangman'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={startOnlineDotsBoxes}
+                      disabled={
+                        onlineSession.role !== 'host' ||
+                        !onlineSession.players[1] ||
+                        onlineBusyAction !== null
+                      }
+                    >
+                      {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Dots and Boxes'}
+                    </button>
                   </div>
                 </>
               ) : null}
@@ -3855,6 +5147,593 @@ function App() {
                           {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}
                         </button>
                       </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              {onlineSession.roomState.activeGame === 'mine-matrix' && onlineMineMatrix ? (
+                <>
+                  <p className="turn-tag">Online Mine Matrix</p>
+                  {onlineMineMatrix.cue ? (
+                    <FeedbackScene
+                      cue={onlineMineMatrix.cue}
+                      speakerName={onlinePlayerName(onlineMineMatrix.cue.speaker)}
+                      speakerColor={onlineSession.colors[onlineMineMatrix.cue.speaker]}
+                    />
+                  ) : null}
+                  {onlineMineMatrix.phase === 'setup' && currentOnlinePlayerIndex !== null ? (
+                    <div className="online-stack">
+                      <h3>Plant 3 hidden mines</h3>
+                      <div className="scoreboard-row">
+                        {[0, 1].map((playerIndex) => (
+                          <div key={playerIndex} className="score-chip">
+                            <strong>{onlinePlayerName(playerIndex as PlayerIndex)}</strong>
+                            <span>{onlineMineMatrix.ready[playerIndex as PlayerIndex] ? 'Ready' : 'Placing'}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mine-grid">
+                        {GRID_CELLS.map((cell) => {
+                          const selected = includesCell(
+                            onlineMineMatrix.plantingSelections[currentOnlinePlayerIndex],
+                            cell,
+                          )
+                          return (
+                            <button
+                              key={cell}
+                              type="button"
+                              className={`mine-cell ${selected ? 'selected' : ''}`}
+                              onClick={() => void toggleOnlineMineSelection(cell)}
+                              disabled={onlineMineMatrix.ready[currentOnlinePlayerIndex]}
+                            >
+                              {selected ? MINE_ICON : ''}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={confirmOnlineMineSetup}
+                        disabled={
+                          onlineMineMatrix.ready[currentOnlinePlayerIndex] ||
+                          onlineMineMatrix.plantingSelections[currentOnlinePlayerIndex].length !== 3
+                        }
+                      >
+                        Lock Mine Layout
+                      </button>
+                    </div>
+                  ) : null}
+                  {onlineMineMatrix.phase === 'play' && currentOnlinePlayerIndex !== null ? (
+                    <div className="online-stack">
+                      <h3>
+                        {onlineMineMatrix.currentTurn === currentOnlinePlayerIndex
+                          ? 'Your turn to bite'
+                          : `${onlinePlayerName(onlineMineMatrix.currentTurn)} is choosing`}
+                      </h3>
+                      <div className="scoreboard-row">
+                        <div className="score-chip">
+                          <strong>{onlinePlayerName(0)}</strong>
+                          <span>{onlineMineMatrix.mineHits[0]} strikes</span>
+                        </div>
+                        <div className="score-chip">
+                          <strong>{onlinePlayerName(1)}</strong>
+                          <span>{onlineMineMatrix.mineHits[1]} strikes</span>
+                        </div>
+                      </div>
+                      <div className="mine-grid">
+                        {GRID_CELLS.map((cell) => {
+                          const defender = partnerOf(onlineMineMatrix.currentTurn)
+                          const revealed = includesCell(onlineMineMatrix.revealedBoards[defender], cell)
+                          const isMine = includesCell(onlineMineMatrix.mineBoards[defender], cell)
+                          return (
+                            <button
+                              key={cell}
+                              type="button"
+                              className={`mine-cell ${revealed ? (isMine ? 'mine-hit' : 'safe-hit') : ''}`}
+                              onClick={() => void revealOnlineMineCell(cell)}
+                              disabled={revealed || onlineMineMatrix.currentTurn !== currentOnlinePlayerIndex}
+                            >
+                              {revealed ? (isMine ? MINE_ICON : SAFE_ICON) : '?'}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="panel-note">{onlineMineMatrix.statusMessage}</p>
+                    </div>
+                  ) : null}
+                  {onlineMineMatrix.phase === 'result' && onlineMineMatrix.winner !== null ? (
+                    <div className="online-stack">
+                      <ResultStage winner={onlineMineMatrix.winner} colors={onlineSession.colors} />
+                      <h3>{onlinePlayerName(onlineMineMatrix.winner)} wins Online Mine Matrix</h3>
+                      <p className="panel-note">{onlineMineMatrix.statusMessage}</p>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={startOnlineMineMatrix}
+                        disabled={onlineSession.role !== 'host' || onlineBusyAction !== null}
+                      >
+                        {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              {onlineSession.roomState.activeGame === 'truth-dare' && onlineTruthOrDare ? (
+                <>
+                  <p className="turn-tag">Online Truth or Dare</p>
+                  {onlineTruthOrDare.cue ? (
+                    <FeedbackScene
+                      cue={onlineTruthOrDare.cue}
+                      speakerName={onlinePlayerName(onlineTruthOrDare.cue.speaker)}
+                      speakerColor={onlineSession.colors[onlineTruthOrDare.cue.speaker]}
+                    />
+                  ) : null}
+                  <div className="scoreboard-row">
+                    <div className="score-chip">
+                      <strong>{onlinePlayerName(0)}</strong>
+                      <span>{onlineTruthOrDare.scores[0]} cards</span>
+                    </div>
+                    <div className="score-chip">
+                      <strong>Round {onlineTruthOrDare.round}</strong>
+                      <span>of {onlineTruthOrDare.totalRounds}</span>
+                    </div>
+                    <div className="score-chip">
+                      <strong>{onlinePlayerName(1)}</strong>
+                      <span>{onlineTruthOrDare.scores[1]} cards</span>
+                    </div>
+                  </div>
+                  {onlineTruthOrDare.phase === 'choose' ? (
+                    <div className="online-stack">
+                      <h3>
+                        {currentOnlinePlayerIndex === onlineTruthOrDare.currentPlayer
+                          ? 'Choose Truth or Dare'
+                          : `${onlinePlayerName(onlineTruthOrDare.currentPlayer)} is choosing`}
+                      </h3>
+                      <div className="truth-choice-grid">
+                        <button
+                          type="button"
+                          className="choice-card truth-choice"
+                          onClick={() => void drawOnlineTruthOrDareCard('Truth')}
+                          disabled={currentOnlinePlayerIndex !== onlineTruthOrDare.currentPlayer}
+                        >
+                          <strong>Truth</strong>
+                          <span>Share something real, sweet, or bold.</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="choice-card dare-choice"
+                          onClick={() => void drawOnlineTruthOrDareCard('Dare')}
+                          disabled={currentOnlinePlayerIndex !== onlineTruthOrDare.currentPlayer}
+                        >
+                          <strong>Dare</strong>
+                          <span>Do something playful, flirty, or ridiculous.</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {onlineTruthOrDare.phase === 'card' && onlineTruthOrDare.activeCard ? (
+                    <div className="online-stack">
+                      <h3>{onlineTruthOrDare.activeCard.kind}</h3>
+                      <p className="prompt-text">{onlineTruthOrDare.activeCard.prompt}</p>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={completeOnlineTruthOrDareCard}
+                        disabled={currentOnlinePlayerIndex !== onlineTruthOrDare.currentPlayer}
+                      >
+                        Completed
+                      </button>
+                    </div>
+                  ) : null}
+                  {onlineTruthOrDare.phase === 'result' ? (
+                    <div className="online-stack">
+                      <ResultStage winner={onlineTruthOrDare.winner} colors={onlineSession.colors} />
+                      <h3>
+                        {onlineTruthOrDare.winner === 'both'
+                          ? 'Online Truth or Dare ends tied'
+                          : `${onlinePlayerName(onlineTruthOrDare.winner as PlayerIndex)} wins Online Truth or Dare`}
+                      </h3>
+                      <p className="panel-note">{onlineTruthOrDare.resultSummary}</p>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={startOnlineTruthOrDare}
+                        disabled={onlineSession.role !== 'host' || onlineBusyAction !== null}
+                      >
+                        {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              {onlineSession.roomState.activeGame === 'never-have-i-ever' && onlineNeverHaveI ? (
+                <>
+                  <p className="turn-tag">Online Never Have I Ever</p>
+                  {onlineNeverHaveI.cue ? (
+                    <FeedbackScene
+                      cue={onlineNeverHaveI.cue}
+                      speakerName={onlinePlayerName(onlineNeverHaveI.cue.speaker)}
+                      speakerColor={onlineSession.colors[onlineNeverHaveI.cue.speaker]}
+                    />
+                  ) : null}
+                  <div className="scoreboard-row">
+                    <div className="score-chip">
+                      <strong>Round {onlineNeverHaveI.round}</strong>
+                      <span>of {onlineNeverHaveI.totalRounds}</span>
+                    </div>
+                    <div className="score-chip">
+                      <strong>Shared score</strong>
+                      <span>{onlineNeverHaveI.sharedScore}</span>
+                    </div>
+                  </div>
+                  {onlineNeverHaveI.phase === 'intro' ? (
+                    <div className="online-stack">
+                      <p className="prompt-text">{onlineNeverHaveI.currentPrompt}</p>
+                      <button type="button" className="primary-button" onClick={beginOnlineNeverHaveI}>
+                        Start Answers
+                      </button>
+                    </div>
+                  ) : null}
+                  {onlineNeverHaveI.phase === 'answer' && currentOnlinePlayerIndex !== null ? (
+                    <div className="online-stack">
+                      <h3>{onlineNeverHaveI.currentPrompt}</h3>
+                      <div className="truth-choice-grid">
+                        <button
+                          type="button"
+                          className="choice-card truth-choice"
+                          onClick={() => void answerOnlineNeverHaveI(true)}
+                          disabled={onlineNeverHaveI.answers[currentOnlinePlayerIndex] !== null}
+                        >
+                          <strong>I have</strong>
+                          <span>That one applies to me.</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="choice-card dare-choice"
+                          onClick={() => void answerOnlineNeverHaveI(false)}
+                          disabled={onlineNeverHaveI.answers[currentOnlinePlayerIndex] !== null}
+                        >
+                          <strong>Never</strong>
+                          <span>Nope, not me.</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {onlineNeverHaveI.phase === 'reveal' ? (
+                    <div className="online-stack">
+                      <div className="scoreboard-row">
+                        <div className="score-chip">
+                          <strong>{onlinePlayerName(0)}</strong>
+                          <span>{onlineNeverHaveI.answers[0] ? 'I have' : 'Never'}</span>
+                        </div>
+                        <div className="score-chip">
+                          <strong>{onlinePlayerName(1)}</strong>
+                          <span>{onlineNeverHaveI.answers[1] ? 'I have' : 'Never'}</span>
+                        </div>
+                      </div>
+                      <button type="button" className="primary-button" onClick={advanceOnlineNeverHaveI}>
+                        Next Prompt
+                      </button>
+                    </div>
+                  ) : null}
+                  {onlineNeverHaveI.phase === 'result' ? (
+                    <div className="online-stack">
+                      <ResultStage winner="both" colors={onlineSession.colors} />
+                      <h3>Online Never Have I Ever complete</h3>
+                      <p className="panel-note">{onlineNeverHaveI.resultSummary}</p>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={startOnlineNeverHaveI}
+                        disabled={onlineSession.role !== 'host' || onlineBusyAction !== null}
+                      >
+                        {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              {onlineSession.roomState.activeGame === 'celebrity-guess' && onlineCelebrityGuess ? (
+                <>
+                  <p className="turn-tag">Online Celebrity Guess</p>
+                  {onlineCelebrityGuess.cue ? (
+                    <FeedbackScene
+                      cue={onlineCelebrityGuess.cue}
+                      speakerName={onlinePlayerName(onlineCelebrityGuess.cue.speaker)}
+                      speakerColor={onlineSession.colors[onlineCelebrityGuess.cue.speaker]}
+                    />
+                  ) : null}
+                  {onlineCelebrityGuess.phase === 'secret' ? (
+                    <div className="online-stack">
+                      <h3>Choose the celebrity</h3>
+                      <div className="chip-grid">
+                        {CELEBRITY_OPTIONS.map((celebrity) => (
+                          <button
+                            key={celebrity}
+                            type="button"
+                            className="chip-button"
+                            onClick={() => void chooseOnlineCelebrity(celebrity)}
+                            disabled={currentOnlinePlayerIndex !== onlineCelebrityGuess.chooser}
+                          >
+                            {celebrity}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {onlineCelebrityGuess.phase === 'questions' ? (
+                    <div className="online-stack">
+                      <div className="scoreboard-row">
+                        <div className="score-chip">
+                          <strong>Questions used</strong>
+                          <span>{onlineCelebrityGuess.questionCount} / {onlineCelebrityGuess.maxQuestions}</span>
+                        </div>
+                      </div>
+                      <div className="chip-grid">
+                        {CELEBRITY_QUESTIONS.map((question) => (
+                          <button
+                            key={question}
+                            type="button"
+                            className={`chip-button ${onlineCelebrityGuess.pendingQuestion === question ? 'selected-chip' : ''}`}
+                            onClick={() => void pickOnlineCelebrityQuestion(question)}
+                            disabled={currentOnlinePlayerIndex !== onlineCelebrityGuess.guesser}
+                          >
+                            {question}
+                          </button>
+                        ))}
+                      </div>
+                      {onlineCelebrityGuess.pendingQuestion ? (
+                        <div className="answer-strip">
+                          <p>{onlineCelebrityGuess.pendingQuestion}</p>
+                          <div className="card-actions">
+                            {(['Yes', 'No', 'Maybe'] as CelebrityAnswer[]).map((answer) => (
+                              <button
+                                key={answer}
+                                type="button"
+                                className="ghost-button"
+                                onClick={() => void answerOnlineCelebrityQuestion(answer)}
+                                disabled={currentOnlinePlayerIndex !== onlineCelebrityGuess.chooser}
+                              >
+                                {answer}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      <form className="duel-form" onSubmit={submitOnlineCelebrityGuess}>
+                        <input
+                          type="text"
+                          placeholder="Your celebrity guess"
+                          value={celebGuessDraft}
+                          onChange={(event) => setCelebGuessDraft(event.target.value)}
+                          disabled={currentOnlinePlayerIndex !== onlineCelebrityGuess.guesser}
+                        />
+                        <button
+                          type="submit"
+                          className="primary-button"
+                          disabled={currentOnlinePlayerIndex !== onlineCelebrityGuess.guesser}
+                        >
+                          Submit Guess
+                        </button>
+                      </form>
+                    </div>
+                  ) : null}
+                  {onlineCelebrityGuess.phase === 'result' && onlineCelebrityGuess.winner !== null ? (
+                    <div className="online-stack">
+                      <ResultStage winner={onlineCelebrityGuess.winner} colors={onlineSession.colors} />
+                      <h3>{onlinePlayerName(onlineCelebrityGuess.winner)} wins Online Celebrity Guess</h3>
+                      <p className="panel-note">{onlineCelebrityGuess.resultSummary}</p>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={startOnlineCelebrityGuess}
+                        disabled={onlineSession.role !== 'host' || onlineBusyAction !== null}
+                      >
+                        {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              {onlineSession.roomState.activeGame === 'hangman' && onlineHangman ? (
+                <>
+                  <p className="turn-tag">Online Hangman</p>
+                  {onlineHangman.cue ? (
+                    <FeedbackScene
+                      cue={onlineHangman.cue}
+                      speakerName={onlinePlayerName(onlineHangman.cue.speaker)}
+                      speakerColor={onlineSession.colors[onlineHangman.cue.speaker]}
+                    />
+                  ) : null}
+                  {onlineHangman.phase === 'secret' ? (
+                    <div className="online-stack">
+                      <h3>Choose the hidden word</h3>
+                      <form className="duel-form" onSubmit={lockOnlineHangmanWord}>
+                        <input
+                          type="password"
+                          placeholder="Secret word"
+                          value={hangmanWordDraft}
+                          onChange={(event) => setHangmanWordDraft(event.target.value)}
+                          disabled={currentOnlinePlayerIndex !== onlineHangman.setter}
+                        />
+                        <button
+                          type="submit"
+                          className="primary-button"
+                          disabled={currentOnlinePlayerIndex !== onlineHangman.setter}
+                        >
+                          Lock Word
+                        </button>
+                      </form>
+                    </div>
+                  ) : null}
+                  {onlineHangman.phase === 'guess' ? (
+                    <div className="online-stack">
+                      <div className="hangman-scene">
+                        <div className={`hangman-stage stage-${onlineHangman.wrongLetters.length}`}>
+                          <div className="gallows-base"></div>
+                          <div className="gallows-pole"></div>
+                          <div className="gallows-beam"></div>
+                          <div className="gallows-rope"></div>
+                          <div className="hanger">
+                            <div className="hanger-head"></div>
+                            <div className="hanger-body"></div>
+                            <div className="hanger-arm arm-left"></div>
+                            <div className="hanger-arm arm-right"></div>
+                            <div className="hanger-leg leg-left"></div>
+                            <div className="hanger-leg leg-right"></div>
+                          </div>
+                        </div>
+                      </div>
+                      <h3 className="hangman-mask">{maskHangmanWord(onlineHangman.word, onlineHangman.guessedLetters)}</h3>
+                      <div className="scoreboard-row">
+                        <div className="score-chip">
+                          <strong>Wrong letters</strong>
+                          <span>{onlineHangman.wrongLetters.join(', ') || 'None yet'}</span>
+                        </div>
+                        <div className="score-chip">
+                          <strong>Misses left</strong>
+                          <span>{6 - onlineHangman.wrongLetters.length}</span>
+                        </div>
+                      </div>
+                      <form className="duel-form" onSubmit={submitOnlineHangmanGuess}>
+                        <input
+                          type="text"
+                          maxLength={1}
+                          placeholder="Guess a letter"
+                          value={hangmanLetterDraft}
+                          onChange={(event) =>
+                            setHangmanLetterDraft(event.target.value.replace(/[^a-zA-Z]/g, '').slice(0, 1))
+                          }
+                          disabled={currentOnlinePlayerIndex !== onlineHangman.guesser}
+                        />
+                        <button
+                          type="submit"
+                          className="primary-button"
+                          disabled={currentOnlinePlayerIndex !== onlineHangman.guesser}
+                        >
+                          Guess Letter
+                        </button>
+                      </form>
+                    </div>
+                  ) : null}
+                  {onlineHangman.phase === 'result' && onlineHangman.winner !== null ? (
+                    <div className="online-stack">
+                      <ResultStage winner={onlineHangman.winner} colors={onlineSession.colors} />
+                      <h3>{onlinePlayerName(onlineHangman.winner)} wins Online Hangman</h3>
+                      <p className="panel-note">{onlineHangman.resultSummary}</p>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={startOnlineHangman}
+                        disabled={onlineSession.role !== 'host' || onlineBusyAction !== null}
+                      >
+                        {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              {onlineSession.roomState.activeGame === 'dots-boxes' && onlineDotsBoxes ? (
+                <>
+                  <p className="turn-tag">Online Dots and Boxes</p>
+                  {onlineDotsBoxes.cue ? (
+                    <FeedbackScene
+                      cue={onlineDotsBoxes.cue}
+                      speakerName={onlinePlayerName(onlineDotsBoxes.cue.speaker)}
+                      speakerColor={onlineSession.colors[onlineDotsBoxes.cue.speaker]}
+                    />
+                  ) : null}
+                  {onlineDotsBoxes.phase === 'play' ? (
+                    <div className="online-stack">
+                      <div className="scoreboard-row">
+                        <div className="score-chip">
+                          <strong>{onlinePlayerName(0)}</strong>
+                          <span>{onlineDotsBoxes.scores[0]} boxes</span>
+                        </div>
+                        <div className="score-chip">
+                          <strong>{onlinePlayerName(1)}</strong>
+                          <span>{onlineDotsBoxes.scores[1]} boxes</span>
+                        </div>
+                      </div>
+                      <h3>
+                        {currentOnlinePlayerIndex === onlineDotsBoxes.currentTurn
+                          ? 'Your line'
+                          : `${onlinePlayerName(onlineDotsBoxes.currentTurn)} is drawing`}
+                      </h3>
+                      <div className="dots-board">
+                        {Array.from({ length: DOTS_SIZE * 2 + 1 }, (_, row) =>
+                          Array.from({ length: DOTS_SIZE * 2 + 1 }, (_, col) => {
+                            if (row % 2 === 0 && col % 2 === 0) {
+                              return <div key={`${row}-${col}`} className="dot-node"></div>
+                            }
+
+                            if (row % 2 === 0 && col % 2 === 1) {
+                              const key = edgeKeyHorizontal(row / 2, Math.floor(col / 2))
+                              const owner = onlineDotsBoxes.lines[key]
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  className={`line-button horizontal ${owner !== undefined ? `owned-${owner}` : ''}`}
+                                  onClick={() => void playOnlineDotsLine(key)}
+                                  disabled={owner !== undefined || currentOnlinePlayerIndex !== onlineDotsBoxes.currentTurn}
+                                />
+                              )
+                            }
+
+                            if (row % 2 === 1 && col % 2 === 0) {
+                              const key = edgeKeyVertical(Math.floor(row / 2), col / 2)
+                              const owner = onlineDotsBoxes.lines[key]
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  className={`line-button vertical ${owner !== undefined ? `owned-${owner}` : ''}`}
+                                  onClick={() => void playOnlineDotsLine(key)}
+                                  disabled={owner !== undefined || currentOnlinePlayerIndex !== onlineDotsBoxes.currentTurn}
+                                />
+                              )
+                            }
+
+                            const boxIndex = Math.floor(row / 2) * DOTS_SIZE + Math.floor(col / 2)
+                            const owner = onlineDotsBoxes.boxes[boxIndex]
+                            return (
+                              <div
+                                key={`box-${boxIndex}`}
+                                className={`box-cell ${owner !== null ? `box-owned-${owner}` : ''}`}
+                              >
+                                {owner === 0 ? onlinePlayerName(0).slice(0, 1) : owner === 1 ? onlinePlayerName(1).slice(0, 1) : ''}
+                              </div>
+                            )
+                          }),
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                  {onlineDotsBoxes.phase === 'result' ? (
+                    <div className="online-stack">
+                      <ResultStage winner={onlineDotsBoxes.winner} colors={onlineSession.colors} />
+                      <h3>
+                        {onlineDotsBoxes.winner === 'draw'
+                          ? 'Online Dots and Boxes ends in a draw'
+                          : `${onlinePlayerName(onlineDotsBoxes.winner as PlayerIndex)} wins Online Dots and Boxes`}
+                      </h3>
+                      <p className="panel-note">{onlineDotsBoxes.resultSummary}</p>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={startOnlineDotsBoxes}
+                        disabled={onlineSession.role !== 'host' || onlineBusyAction !== null}
+                      >
+                        {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}
+                      </button>
                     </div>
                   ) : null}
                 </>
