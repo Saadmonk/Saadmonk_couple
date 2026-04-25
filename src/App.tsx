@@ -3,6 +3,7 @@ import type { CSSProperties, FormEvent } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import './App.css'
 import {
+  broadcastRoomEvent,
   createOnlineRoom,
   getOnlineRoom,
   isOnlinePlayConfigured,
@@ -1104,18 +1105,49 @@ function App() {
   }
 
   const broadcastOnlineSnapshot = async (room: GameRoom) => {
-    if (!onlineChannelRef.current) {
+    try {
+      if (onlineChannelRef.current) {
+        const result = await onlineChannelRef.current.send({
+          type: 'broadcast',
+          event: 'state-sync',
+          payload: { room },
+        })
+
+        if (result === 'ok') {
+          return
+        }
+      }
+    } catch {
+      // Fall back to a direct room broadcast below.
+    }
+
+    try {
+      await broadcastRoomEvent(room.code, 'state-sync', {
+        room: room as unknown as Record<string, unknown>,
+      })
+    } catch {
+      // Realtime delivery is a convenience layer for the prototype. The row save still succeeds.
+    }
+  }
+
+  const refreshOnlineRoom = async () => {
+    if (!onlineSession) {
       return
     }
 
     try {
-      await onlineChannelRef.current.send({
-        type: 'broadcast',
-        event: 'state-sync',
-        payload: { room },
-      })
-    } catch {
-      // Realtime delivery is a convenience layer for the prototype. The row save still succeeds.
+      const room = await getOnlineRoom(onlineSession.roomCode)
+      setOnlineSession((current) =>
+        current
+          ? {
+              ...hydrateOnlineSessionFromRoom(room, current.role, current.onlineCount),
+              connectionStatus: 'live',
+              errorMessage: '',
+            }
+          : current,
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not refresh the room.')
     }
   }
 
@@ -1179,6 +1211,7 @@ function App() {
         game_key: 'lobby',
         status: 'waiting',
       })
+      await broadcastOnlineSnapshot(updatedRoom)
 
       setOnlineSession({
         ...hydrateOnlineSessionFromRoom(updatedRoom, 'host'),
@@ -1224,6 +1257,7 @@ function App() {
         game_key: room.game_key,
         status: payload.players[0] && payload.players[1] ? 'ready' : room.status,
       })
+      await broadcastOnlineSnapshot(updatedRoom)
 
       setOnlineSession({
         ...hydrateOnlineSessionFromRoom(updatedRoom, 'guest', 2),
@@ -2933,9 +2967,14 @@ function App() {
               <p className="eyebrow">Online room</p>
               <h2>Room {onlineSession.roomCode}</h2>
             </div>
-            <button type="button" className="ghost-button" onClick={leaveOnlineRoom}>
-              Leave Room
-            </button>
+            <div className="result-actions">
+              <button type="button" className="ghost-button" onClick={refreshOnlineRoom}>
+                Refresh Room
+              </button>
+              <button type="button" className="ghost-button" onClick={leaveOnlineRoom}>
+                Leave Room
+              </button>
+            </div>
           </div>
 
           <div className="scoreboard-row">
