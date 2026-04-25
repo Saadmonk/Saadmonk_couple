@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import './App.css'
@@ -107,10 +107,34 @@ type OnlineNumberDuelState = {
   statusMessage: string
 }
 
+type OnlineRaceDashState = {
+  phase: 'countdown' | 'racing' | 'result'
+  targetTaps: number
+  durationMs: number
+  startsAt: string
+  endsAt: string
+  taps: [number, number]
+  progress: [number, number]
+  winner: SessionWinner
+  cue: ReactionCue | null
+  statusMessage: string
+}
+
+type OnlineTicTacToeState = {
+  phase: 'play' | 'result'
+  board: Array<PlayerIndex | null>
+  currentTurn: PlayerIndex
+  winner: SessionWinner
+  cue: ReactionCue | null
+  statusMessage: string
+}
+
 type OnlineRoomPayload = {
   players: [string, string]
   colors: [string, string]
   numberDuel: OnlineNumberDuelState | null
+  raceDash: OnlineRaceDashState | null
+  ticTacToe: OnlineTicTacToeState | null
   lastEvent: string
 }
 
@@ -469,10 +493,39 @@ const createOnlineNumberDuel = (): OnlineNumberDuelState => ({
   statusMessage: 'Waiting for both players to lock a secret number.',
 })
 
+const createOnlineRaceDash = (): OnlineRaceDashState => {
+  const startsAt = new Date(Date.now() + 3200)
+  const endsAt = new Date(startsAt.getTime() + 20000)
+
+  return {
+    phase: 'countdown',
+    targetTaps: 120,
+    durationMs: 20000,
+    startsAt: startsAt.toISOString(),
+    endsAt: endsAt.toISOString(),
+    taps: [0, 0],
+    progress: [0, 0],
+    winner: null,
+    cue: createCue(0, 'Ready, set...', 'Mash space or tap the button when the countdown ends.', THUMBS_UP, 'soft'),
+    statusMessage: 'The race starts in a few seconds.',
+  }
+}
+
+const createOnlineTicTacToe = (): OnlineTicTacToeState => ({
+  phase: 'play',
+  board: Array<PlayerIndex | null>(9).fill(null),
+  currentTurn: 0,
+  winner: null,
+  cue: createCue(1, 'Board is live', 'Host opens with the first move.', THUMBS_UP, 'soft'),
+  statusMessage: 'Host moves first.',
+})
+
 const createOnlinePayload = (hostName: string, hostColor: string): OnlineRoomPayload => ({
   players: [hostName, ''],
   colors: [hostColor, PLAYER_COLOR_OPTIONS[1]],
   numberDuel: null,
+  raceDash: null,
+  ticTacToe: null,
   lastEvent: 'Room created',
 })
 
@@ -494,6 +547,14 @@ const readOnlinePayload = (payload: RoomState['payload']): OnlineRoomPayload => 
     numberDuel:
       value.numberDuel && typeof value.numberDuel === 'object'
         ? (value.numberDuel as OnlineNumberDuelState)
+        : null,
+    raceDash:
+      value.raceDash && typeof value.raceDash === 'object'
+        ? (value.raceDash as OnlineRaceDashState)
+        : null,
+    ticTacToe:
+      value.ticTacToe && typeof value.ticTacToe === 'object'
+        ? (value.ticTacToe as OnlineTicTacToeState)
         : null,
     lastEvent: typeof value.lastEvent === 'string' ? value.lastEvent : '',
   }
@@ -899,6 +960,7 @@ function App() {
   const [onlineBusyAction, setOnlineBusyAction] = useState<'create' | 'join' | 'start' | 'sync' | null>(null)
   const [onlineError, setOnlineError] = useState('')
   const [onlineSession, setOnlineSession] = useState<OnlineSessionState | null>(null)
+  const [raceClock, setRaceClock] = useState(() => Date.now())
   const onlineChannelRef = useRef<RealtimeChannel | null>(null)
 
   useEffect(() => {
@@ -934,6 +996,49 @@ function App() {
   const currentOnlinePlayerIndex = onlineSession ? roleToPlayerIndex(onlineSession.role) : null
   const onlinePlayerName = (index: PlayerIndex) =>
     onlineSession?.players[index] || (index === 0 ? 'Host' : 'Guest')
+
+  const mergeOnlineRaceProgress = (
+    playerIndex: PlayerIndex,
+    taps: number,
+    progress: number,
+    message?: string,
+  ) => {
+    setOnlineSession((current) => {
+      if (!current) {
+        return current
+      }
+
+      const payload = readOnlinePayload(current.roomState.payload)
+      if (!payload.raceDash) {
+        return current
+      }
+
+      const nextTaps = [...payload.raceDash.taps] as [number, number]
+      const nextProgress = [...payload.raceDash.progress] as [number, number]
+      nextTaps[playerIndex] = Math.max(nextTaps[playerIndex], taps)
+      nextProgress[playerIndex] = Math.max(nextProgress[playerIndex], progress)
+
+      const nextPayload: OnlineRoomPayload = {
+        ...payload,
+        raceDash: {
+          ...payload.raceDash,
+          taps: nextTaps,
+          progress: nextProgress,
+          statusMessage: message ?? payload.raceDash.statusMessage,
+        },
+      }
+
+      return {
+        ...current,
+        roomState: buildOnlineRoomState(
+          nextPayload,
+          current.roomState.activeGame,
+          current.roomState.phase,
+          current.roomState.turn,
+        ),
+      }
+    })
+  }
 
   useEffect(() => {
     if (!onlineSession?.roomCode) {
@@ -978,6 +1083,21 @@ function App() {
 
     const channel = subscribeToOnlineRoom(onlineSession.roomCode, {
       onRoomEvent: (event, payload) => {
+        if (event === 'race-progress') {
+          const playerIndex = Number(payload.playerIndex) as PlayerIndex
+          const taps = Number(payload.taps)
+          const progress = Number(payload.progress)
+          if (
+            Number.isInteger(playerIndex) &&
+            (playerIndex === 0 || playerIndex === 1) &&
+            Number.isFinite(taps) &&
+            Number.isFinite(progress)
+          ) {
+            mergeOnlineRaceProgress(playerIndex, taps, progress, payload.message as string | undefined)
+          }
+          return
+        }
+
         if (event !== 'state-sync' || !payload.room) {
           return
         }
@@ -1296,6 +1416,242 @@ function App() {
     }
   }
 
+  const startOnlineRaceDash = async () => {
+    if (!onlineSession || onlineSession.role !== 'host') {
+      return
+    }
+
+    const payload: OnlineRoomPayload = {
+      ...readOnlinePayload(onlineSession.roomState.payload),
+      numberDuel: null,
+      ticTacToe: null,
+      raceDash: createOnlineRaceDash(),
+      lastEvent: 'Online Race Dash started.',
+    }
+
+    setOnlineBusyAction('start')
+
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(payload, 'race-dash', 'countdown', 'both'), {
+        game_key: 'race-dash',
+        status: 'playing',
+      })
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start the race.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const startOnlineTicTacToe = async () => {
+    if (!onlineSession || onlineSession.role !== 'host') {
+      return
+    }
+
+    const payload: OnlineRoomPayload = {
+      ...readOnlinePayload(onlineSession.roomState.payload),
+      numberDuel: null,
+      raceDash: null,
+      ticTacToe: createOnlineTicTacToe(),
+      lastEvent: 'Online Tic Tac Toe started.',
+    }
+
+    setOnlineBusyAction('start')
+
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(payload, 'tic-tac-toe', 'play', turnForPlayer(0)), {
+        game_key: 'tic-tac-toe',
+        status: 'playing',
+      })
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start online Tic Tac Toe.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  async function finalizeOnlineRaceDash(
+    winner: SessionWinner,
+    statusMessage: string,
+    cue: ReactionCue,
+  ) {
+    if (!onlineSession) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    if (!payload.raceDash || payload.raceDash.phase === 'result') {
+      return
+    }
+
+    const nextRace: OnlineRaceDashState = {
+      ...payload.raceDash,
+      phase: 'result',
+      winner,
+      cue,
+      statusMessage,
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            raceDash: nextRace,
+            lastEvent: statusMessage,
+          },
+          'race-dash',
+          'result',
+          'both',
+        ),
+        { game_key: 'race-dash', status: 'finished' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not finish the race cleanly.')
+    }
+  }
+
+  async function pushOnlineRaceStep() {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const raceDash = payload.raceDash
+    if (!raceDash) {
+      return
+    }
+
+    const startsAt = new Date(raceDash.startsAt).getTime()
+    const endsAt = new Date(raceDash.endsAt).getTime()
+    if (Date.now() < startsAt || Date.now() > endsAt || raceDash.phase === 'result') {
+      return
+    }
+
+    const taps = [...raceDash.taps] as [number, number]
+    const progress = [...raceDash.progress] as [number, number]
+    taps[currentOnlinePlayerIndex] += 1
+    progress[currentOnlinePlayerIndex] = Math.min(
+      100,
+      Math.round((taps[currentOnlinePlayerIndex] / raceDash.targetTaps) * 100),
+    )
+
+    mergeOnlineRaceProgress(
+      currentOnlinePlayerIndex,
+      taps[currentOnlinePlayerIndex],
+      progress[currentOnlinePlayerIndex],
+      `${onlinePlayerName(currentOnlinePlayerIndex)} is charging forward.`,
+    )
+
+    try {
+      await broadcastRoomEvent(onlineSession.roomCode, 'race-progress', {
+        playerIndex: currentOnlinePlayerIndex,
+        taps: taps[currentOnlinePlayerIndex],
+        progress: progress[currentOnlinePlayerIndex],
+        message: `${onlinePlayerName(currentOnlinePlayerIndex)} is charging forward.`,
+      })
+    } catch {
+      // Local UI still updates, and the room poll will eventually reconcile.
+    }
+
+    if (progress[currentOnlinePlayerIndex] >= 100) {
+      await finalizeOnlineRaceDash(
+        currentOnlinePlayerIndex,
+        `${onlinePlayerName(currentOnlinePlayerIndex)} crossed the finish line first.`,
+        createCue(currentOnlinePlayerIndex, 'Photo finish', 'That sprint was ridiculous.', KISS_HEART, 'win'),
+      )
+    }
+  }
+
+  const finalizeOnlineRaceDashEvent = useEffectEvent(
+    (winner: SessionWinner, statusMessage: string, cue: ReactionCue) => {
+      void finalizeOnlineRaceDash(winner, statusMessage, cue)
+    },
+  )
+
+  const pushOnlineRaceStepEvent = useEffectEvent(() => {
+    void pushOnlineRaceStep()
+  })
+
+  useEffect(() => {
+    const payload = onlineSession ? readOnlinePayload(onlineSession.roomState.payload) : null
+    const raceDash = payload?.raceDash
+    if (!raceDash || (raceDash.phase !== 'countdown' && raceDash.phase !== 'racing')) {
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      setRaceClock(Date.now())
+    }, 120)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [onlineSession])
+
+  useEffect(() => {
+    const payload = onlineSession ? readOnlinePayload(onlineSession.roomState.payload) : null
+    const raceDash = payload?.raceDash
+    if (!raceDash || raceDash.phase === 'result' || currentOnlinePlayerIndex === null) {
+      return
+    }
+
+    const endsAt = new Date(raceDash.endsAt).getTime()
+    const timeoutMs = Math.max(0, endsAt - raceClock)
+
+    const timeout = window.setTimeout(() => {
+      if (raceDash.progress[0] === raceDash.progress[1]) {
+        finalizeOnlineRaceDashEvent(
+          'draw',
+          'Race Dash ended in a dead heat.',
+          createCue(0, 'Tie race', 'You hit the line together.', KISS_HEART, 'win'),
+        )
+        return
+      }
+
+      const winner = raceDash.progress[0] > raceDash.progress[1] ? 0 : 1
+      const winnerName = onlineSession?.players[winner] || (winner === 0 ? 'Host' : 'Guest')
+      finalizeOnlineRaceDashEvent(
+        winner,
+        `${winnerName} covered more distance before the timer ran out.`,
+        createCue(winner, 'Time', 'You held the lead when the clock hit zero.', KISS_HEART, 'win'),
+      )
+    }, timeoutMs)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [currentOnlinePlayerIndex, onlineSession, raceClock])
+
+  useEffect(() => {
+    const payload = onlineSession ? readOnlinePayload(onlineSession.roomState.payload) : null
+    const raceDash = payload?.raceDash
+    if (!raceDash || currentOnlinePlayerIndex === null) {
+      return
+    }
+
+    const startsAt = new Date(raceDash.startsAt).getTime()
+    const endsAt = new Date(raceDash.endsAt).getTime()
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') {
+        return
+      }
+
+      if (Date.now() < startsAt || Date.now() > endsAt || raceDash.phase === 'result') {
+        return
+      }
+
+      event.preventDefault()
+      pushOnlineRaceStepEvent()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [currentOnlinePlayerIndex, onlineSession, raceClock])
+
   const submitOnlineSecret = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -1515,6 +1871,111 @@ function App() {
       )
     } catch (error) {
       setOnlineError(error instanceof Error ? error.message : 'Could not advance the turn.')
+    }
+  }
+
+  const playOnlineTicTacToeMove = async (cell: number) => {
+    if (!onlineSession) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.ticTacToe
+    const playerIndex = roleToPlayerIndex(onlineSession.role)
+
+    if (!game || game.phase !== 'play' || game.currentTurn !== playerIndex || game.board[cell] !== null) {
+      return
+    }
+
+    const board = [...game.board]
+    board[cell] = playerIndex
+    const winner = getTicWinner(board)
+
+    if (winner !== null) {
+      const nextGame: OnlineTicTacToeState = {
+        ...game,
+        board,
+        phase: 'result',
+        winner,
+        cue: createCue(winner, 'Three in a row', 'Clean win.', KISS_HEART, 'win'),
+        statusMessage: `${onlinePlayerName(winner)} wins Online Tic Tac Toe.`,
+      }
+
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState(
+            {
+              ...payload,
+              ticTacToe: nextGame,
+              lastEvent: `${onlinePlayerName(winner)} won Online Tic Tac Toe.`,
+            },
+            'tic-tac-toe',
+            'result',
+            'both',
+          ),
+          { game_key: 'tic-tac-toe', status: 'finished' },
+        )
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not save the winning move.')
+      }
+      return
+    }
+
+    if (board.every((value) => value !== null)) {
+      const nextGame: OnlineTicTacToeState = {
+        ...game,
+        board,
+        phase: 'result',
+        winner: 'draw',
+        cue: createCue(0, 'Draw board', 'That was tight all the way through.', THUMBS_UP, 'soft'),
+        statusMessage: 'Online Tic Tac Toe ended in a draw.',
+      }
+
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState(
+            {
+              ...payload,
+              ticTacToe: nextGame,
+              lastEvent: 'Online Tic Tac Toe ended in a draw.',
+            },
+            'tic-tac-toe',
+            'result',
+            'both',
+          ),
+          { game_key: 'tic-tac-toe', status: 'finished' },
+        )
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not save the draw state.')
+      }
+      return
+    }
+
+    const nextTurn = partnerOf(playerIndex)
+    const nextGame: OnlineTicTacToeState = {
+      ...game,
+      board,
+      currentTurn: nextTurn,
+      cue: createCue(nextTurn, 'Your move', `${onlinePlayerName(nextTurn)} is up.`, THUMBS_UP, 'success'),
+      statusMessage: `${onlinePlayerName(nextTurn)} is up next.`,
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            ticTacToe: nextGame,
+            lastEvent: `${onlinePlayerName(playerIndex)} placed a mark.`,
+          },
+          'tic-tac-toe',
+          'play',
+          turnForPlayer(nextTurn),
+        ),
+        { game_key: 'tic-tac-toe', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not save that move.')
     }
   }
 
@@ -2625,6 +3086,24 @@ function App() {
   const dotsCue = dotsBoxes?.cue
   const onlinePayload = onlineSession ? readOnlinePayload(onlineSession.roomState.payload) : null
   const onlineNumberDuel = onlinePayload?.numberDuel ?? null
+  const onlineRaceDash = onlinePayload?.raceDash ?? null
+  const onlineTicTacToe = onlinePayload?.ticTacToe ?? null
+  const onlineRaceStartsAt = onlineRaceDash ? new Date(onlineRaceDash.startsAt).getTime() : 0
+  const onlineRaceEndsAt = onlineRaceDash ? new Date(onlineRaceDash.endsAt).getTime() : 0
+  const onlineRacePhase =
+    onlineRaceDash?.phase === 'result'
+      ? 'result'
+      : raceClock < onlineRaceStartsAt
+        ? 'countdown'
+        : raceClock <= onlineRaceEndsAt
+          ? 'racing'
+          : 'result'
+  const onlineRaceCountdown = onlineRaceDash
+    ? Math.max(0, Math.ceil((onlineRaceStartsAt - raceClock) / 1000))
+    : 0
+  const onlineRaceTimeLeft = onlineRaceDash
+    ? Math.max(0, Math.ceil((onlineRaceEndsAt - raceClock) / 1000))
+    : 0
   const onlineEntryPanel = (
     <article className="panel online-entry-panel">
       <div className="panel-heading">
@@ -3026,10 +3505,10 @@ function App() {
               {onlineSession.roomState.activeGame === 'lobby' ? (
                 <>
                   <p className="turn-tag">Lobby</p>
-                  <h3>Get both players in, then start online play</h3>
+                  <h3>Choose the next online minigame</h3>
                   <p className="panel-note">
                     {onlineSession.players[1]
-                      ? `${onlinePlayerName(1)} joined. The host can start Online Number Duel now.`
+                      ? `${onlinePlayerName(1)} joined. The host can launch any online game from here.`
                       : 'Waiting for a second player to join this room.'}
                   </p>
                   <p className="panel-note">
@@ -3037,7 +3516,7 @@ function App() {
                       ? 'You are the host for this room.'
                       : `Waiting for ${onlinePlayerName(0)} to start the online match.`}
                   </p>
-                  <div className="result-actions">
+                  <div className="online-lobby-actions">
                     <button
                       type="button"
                       className="primary-button"
@@ -3049,6 +3528,30 @@ function App() {
                       }
                     >
                       {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Number Duel'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={startOnlineRaceDash}
+                      disabled={
+                        onlineSession.role !== 'host' ||
+                        !onlineSession.players[1] ||
+                        onlineBusyAction !== null
+                      }
+                    >
+                      {onlineBusyAction === 'start' ? 'Starting...' : 'Start Race Dash'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={startOnlineTicTacToe}
+                      disabled={
+                        onlineSession.role !== 'host' ||
+                        !onlineSession.players[1] ||
+                        onlineBusyAction !== null
+                      }
+                    >
+                      {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Tic Tac Toe'}
                     </button>
                   </div>
                 </>
@@ -3186,6 +3689,167 @@ function App() {
                           type="button"
                           className="primary-button"
                           onClick={startOnlineNumberDuel}
+                          disabled={onlineSession.role !== 'host' || onlineBusyAction !== null}
+                        >
+                          {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              {onlineSession.roomState.activeGame === 'race-dash' && onlineRaceDash ? (
+                <>
+                  <p className="turn-tag">Race Dash</p>
+                  {onlineRaceDash.cue ? (
+                    <FeedbackScene
+                      cue={onlineRaceDash.cue}
+                      speakerName={onlinePlayerName(onlineRaceDash.cue.speaker)}
+                      speakerColor={onlineSession.colors[onlineRaceDash.cue.speaker]}
+                    />
+                  ) : null}
+
+                  <div className="online-stack">
+                    <div className="scoreboard-row">
+                      <div className="score-chip">
+                        <strong>Status</strong>
+                        <span>
+                          {onlineRacePhase === 'countdown'
+                            ? `Starts in ${onlineRaceCountdown}`
+                            : onlineRacePhase === 'racing'
+                              ? `${onlineRaceTimeLeft}s left`
+                              : 'Race complete'}
+                        </span>
+                      </div>
+                      <div className="score-chip">
+                        <strong>Target</strong>
+                        <span>{onlineRaceDash.targetTaps} taps</span>
+                      </div>
+                    </div>
+
+                    <div className="race-lane-list">
+                      {[0, 1].map((playerIndex) => (
+                        <article key={playerIndex} className="race-lane-card">
+                          <div className="race-lane-header">
+                            <strong>{onlinePlayerName(playerIndex as PlayerIndex)}</strong>
+                            <span>{onlineRaceDash.taps[playerIndex as PlayerIndex]} taps</span>
+                          </div>
+                          <div className="race-track">
+                            <div
+                              className="race-runner"
+                              style={{
+                                left: `${Math.min(
+                                  92,
+                                  onlineRaceDash.progress[playerIndex as PlayerIndex],
+                                )}%`,
+                                '--runner-color':
+                                  onlineSession.colors[playerIndex as PlayerIndex],
+                              } as CSSProperties}
+                            >
+                              <span className="race-runner-emoji">
+                                {playerIndex === 0 ? '🏃' : '💨'}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="panel-note">
+                            {onlineRaceDash.progress[playerIndex as PlayerIndex]}% to the finish line
+                          </p>
+                        </article>
+                      ))}
+                    </div>
+
+                    {currentOnlinePlayerIndex !== null && onlineRacePhase !== 'result' ? (
+                      <button
+                        type="button"
+                        className="primary-button race-button"
+                        onClick={() => void pushOnlineRaceStep()}
+                        disabled={onlineRacePhase !== 'racing'}
+                      >
+                        {onlineRacePhase === 'countdown'
+                          ? 'Wait for GO'
+                          : 'Tap Fast or Hit Space'}
+                      </button>
+                    ) : null}
+
+                    {onlineRacePhase === 'result' ? (
+                      <div className="online-stack">
+                        <ResultStage winner={onlineRaceDash.winner} colors={onlineSession.colors} />
+                        <h3>
+                          {onlineRaceDash.winner === 'draw'
+                            ? 'Race Dash ends in a tie'
+                            : `${onlinePlayerName(onlineRaceDash.winner as PlayerIndex)} wins Race Dash`}
+                        </h3>
+                        <p className="panel-note">{onlineRaceDash.statusMessage}</p>
+                        <div className="result-actions">
+                          <button
+                            type="button"
+                            className="primary-button"
+                            onClick={startOnlineRaceDash}
+                            disabled={onlineSession.role !== 'host' || onlineBusyAction !== null}
+                          >
+                            {onlineBusyAction === 'start' ? 'Restarting...' : 'Race Again'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="panel-note">{onlineRaceDash.statusMessage}</p>
+                    )}
+                  </div>
+                </>
+              ) : null}
+
+              {onlineSession.roomState.activeGame === 'tic-tac-toe' && onlineTicTacToe ? (
+                <>
+                  <p className="turn-tag">Online Tic Tac Toe</p>
+                  {onlineTicTacToe.cue ? (
+                    <FeedbackScene
+                      cue={onlineTicTacToe.cue}
+                      speakerName={onlinePlayerName(onlineTicTacToe.cue.speaker)}
+                      speakerColor={onlineSession.colors[onlineTicTacToe.cue.speaker]}
+                    />
+                  ) : null}
+
+                  {onlineTicTacToe.phase === 'play' ? (
+                    <div className="online-stack">
+                      <h3>
+                        {currentOnlinePlayerIndex === onlineTicTacToe.currentTurn
+                          ? 'Your move'
+                          : `${onlinePlayerName(onlineTicTacToe.currentTurn)} is up`}
+                      </h3>
+                      <div className="tic-board online-tic-board">
+                        {onlineTicTacToe.board.map((cell, index) => (
+                          <button
+                            key={index}
+                            type="button"
+                            className="tic-cell"
+                            onClick={() => void playOnlineTicTacToeMove(index)}
+                            disabled={
+                              cell !== null || currentOnlinePlayerIndex !== onlineTicTacToe.currentTurn
+                            }
+                          >
+                            {cell === 0 ? 'X' : cell === 1 ? 'O' : ''}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="panel-note">{onlineTicTacToe.statusMessage}</p>
+                    </div>
+                  ) : null}
+
+                  {onlineTicTacToe.phase === 'result' ? (
+                    <div className="online-stack">
+                      <ResultStage winner={onlineTicTacToe.winner} colors={onlineSession.colors} />
+                      <h3>
+                        {onlineTicTacToe.winner === 'draw'
+                          ? 'Online Tic Tac Toe ends in a draw'
+                          : `${onlinePlayerName(onlineTicTacToe.winner as PlayerIndex)} wins Online Tic Tac Toe`}
+                      </h3>
+                      <p className="panel-note">{onlineTicTacToe.statusMessage}</p>
+                      <div className="result-actions">
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={startOnlineTicTacToe}
                           disabled={onlineSession.role !== 'host' || onlineBusyAction !== null}
                         >
                           {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}

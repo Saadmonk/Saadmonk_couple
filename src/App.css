@@ -646,6 +646,12 @@
   gap: 14px;
 }
 
+.online-lobby-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .online-player-card {
   display: flex;
   align-items: center;
@@ -667,6 +673,94 @@
   margin: 0;
   color: #b64040;
   font-weight: 700;
+}
+
+.race-lane-list {
+  display: grid;
+  gap: 14px;
+}
+
+.race-lane-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(54, 58, 87, 0.08);
+}
+
+.race-lane-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-strong);
+  font-weight: 700;
+}
+
+.race-track {
+  position: relative;
+  min-height: 78px;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid rgba(54, 58, 87, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 247, 239, 0.98), rgba(255, 255, 255, 0.94)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(54, 58, 87, 0.04) 0 12%,
+      rgba(54, 58, 87, 0.02) 12% 24%
+    );
+}
+
+.race-track::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  right: 28px;
+  bottom: 10px;
+  width: 10px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(54, 58, 87, 0.22) 0 16%,
+      transparent 16% 32%,
+      rgba(54, 58, 87, 0.22) 32% 48%,
+      transparent 48% 64%,
+      rgba(54, 58, 87, 0.22) 64% 80%,
+      transparent 80%
+    );
+}
+
+.race-runner {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--runner-color) 24%, white);
+  box-shadow:
+    0 12px 20px rgba(54, 58, 87, 0.14),
+    inset 0 0 0 1px rgba(54, 58, 87, 0.08);
+  transition: left 140ms linear;
+}
+
+.race-runner-emoji {
+  font-size: 1.55rem;
+}
+
+.race-button {
+  min-height: 72px;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.online-tic-board {
+  justify-content: start;
 }
 
 .history-card {
