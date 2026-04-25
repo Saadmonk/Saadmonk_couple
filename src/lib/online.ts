@@ -141,6 +141,26 @@ export async function joinOnlineRoom(code: string, guestName: string) {
   return data as GameRoom
 }
 
+export async function getOnlineRoom(code: string) {
+  const client = requireSupabase()
+  const normalizedCode = code.trim().toUpperCase()
+  const { data, error } = await client
+    .from('game_rooms')
+    .select('*')
+    .eq('code', normalizedCode)
+    .maybeSingle()
+
+  if (error) {
+    throw error
+  }
+
+  if (!data) {
+    throw new Error('Room not found.')
+  }
+
+  return data as GameRoom
+}
+
 export async function saveOnlineRoomState(
   roomId: string,
   roomState: RoomState,

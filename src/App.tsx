@@ -4,6 +4,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 import './App.css'
 import {
   createOnlineRoom,
+  getOnlineRoom,
   isOnlinePlayConfigured,
   joinOnlineRoom,
   releaseOnlineRoomSubscription,
@@ -938,6 +939,42 @@ function App() {
       return
     }
 
+    let isCancelled = false
+
+    const pullLatestRoom = async () => {
+      try {
+        const room = await getOnlineRoom(onlineSession.roomCode)
+        if (isCancelled) {
+          return
+        }
+
+        setOnlineSession((current) => {
+          if (!current) {
+            return current
+          }
+
+          return {
+            ...hydrateOnlineSessionFromRoom(room, current.role, current.onlineCount),
+            connectionStatus: 'live',
+          }
+        })
+      } catch {
+        if (isCancelled) {
+          return
+        }
+
+        setOnlineSession((current) =>
+          current
+            ? {
+                ...current,
+                connectionStatus: 'error',
+                errorMessage: 'Room sync is delayed. Retrying...',
+              }
+            : current,
+        )
+      }
+    }
+
     const channel = subscribeToOnlineRoom(onlineSession.roomCode, {
       onRoomEvent: (event, payload) => {
         if (event !== 'state-sync' || !payload.room) {
@@ -971,8 +1008,14 @@ function App() {
     })
 
     onlineChannelRef.current = channel
+    void pullLatestRoom()
+    const pollHandle = window.setInterval(() => {
+      void pullLatestRoom()
+    }, 1800)
 
     return () => {
+      isCancelled = true
+      window.clearInterval(pollHandle)
       releaseOnlineRoomSubscription(channel)
       if (onlineChannelRef.current === channel) {
         onlineChannelRef.current = null
@@ -2949,6 +2992,11 @@ function App() {
                     {onlineSession.players[1]
                       ? `${onlinePlayerName(1)} joined. The host can start Online Number Duel now.`
                       : 'Waiting for a second player to join this room.'}
+                  </p>
+                  <p className="panel-note">
+                    {onlineSession.role === 'host'
+                      ? 'You are the host for this room.'
+                      : `Waiting for ${onlinePlayerName(0)} to start the online match.`}
                   </p>
                   <div className="result-actions">
                     <button
