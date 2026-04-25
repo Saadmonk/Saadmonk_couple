@@ -1,12 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 import './App.css'
-import { isOnlinePlayConfigured } from './lib/online'
+import {
+  createOnlineRoom,
+  isOnlinePlayConfigured,
+  joinOnlineRoom,
+  releaseOnlineRoomSubscription,
+  saveOnlineRoomState,
+  subscribeToOnlineRoom,
+} from './lib/online'
+import type { GameRoom, RoomState, RoomStatus } from './lib/online'
 
 type PlayerIndex = 0 | 1
 type Screen =
   | 'setup'
   | 'home'
+  | 'online-room'
   | 'number-duel'
   | 'mine-matrix'
   | 'truth-dare'
@@ -80,6 +90,39 @@ type NumberDuelState = {
   nextView: 'secret' | 'guess'
   statusMessage: string
   cue: ReactionCue | null
+}
+
+type OnlineRole = 'host' | 'guest'
+
+type OnlineNumberDuelState = {
+  phase: 'setup' | 'guess' | 'reveal' | 'result'
+  ready: [boolean, boolean]
+  secrets: [number | null, number | null]
+  trackers: [GuessTracker | null, GuessTracker | null]
+  currentTurn: PlayerIndex
+  winner: PlayerIndex | null
+  cue: ReactionCue | null
+  statusMessage: string
+}
+
+type OnlineRoomPayload = {
+  players: [string, string]
+  colors: [string, string]
+  numberDuel: OnlineNumberDuelState | null
+  lastEvent: string
+}
+
+type OnlineSessionState = {
+  roomId: string
+  roomCode: string
+  role: OnlineRole
+  players: [string, string]
+  colors: [string, string]
+  roomStatus: RoomStatus
+  roomState: RoomState
+  onlineCount: number
+  connectionStatus: 'connecting' | 'live' | 'error'
+  errorMessage: string
 }
 
 type MineMatrixState = {
@@ -412,6 +455,89 @@ const createNumberDuel = (): NumberDuelState => ({
   statusMessage: '',
   cue: null,
 })
+
+const createOnlineNumberDuel = (): OnlineNumberDuelState => ({
+  phase: 'setup',
+  ready: [false, false],
+  secrets: [null, null],
+  trackers: [null, null],
+  currentTurn: 0,
+  winner: null,
+  cue: createCue(0, 'Lock your secret', 'Both players pick a number from 1 to 999.', KISS_HEART, 'soft'),
+  statusMessage: 'Waiting for both players to lock a secret number.',
+})
+
+const createOnlinePayload = (hostName: string, hostColor: string): OnlineRoomPayload => ({
+  players: [hostName, ''],
+  colors: [hostColor, PLAYER_COLOR_OPTIONS[1]],
+  numberDuel: null,
+  lastEvent: 'Room created',
+})
+
+const readOnlinePayload = (payload: RoomState['payload']): OnlineRoomPayload => {
+  const value = payload as Partial<OnlineRoomPayload>
+  const players: [string, string] = Array.isArray(value.players)
+    ? [(value.players[0] as string) ?? '', (value.players[1] as string) ?? '']
+    : ['', '']
+  const colors: [string, string] = Array.isArray(value.colors)
+    ? [
+        (value.colors[0] as string) ?? PLAYER_COLOR_OPTIONS[0],
+        (value.colors[1] as string) ?? PLAYER_COLOR_OPTIONS[1],
+      ]
+    : [PLAYER_COLOR_OPTIONS[0], PLAYER_COLOR_OPTIONS[1]]
+
+  return {
+    players,
+    colors,
+    numberDuel:
+      value.numberDuel && typeof value.numberDuel === 'object'
+        ? (value.numberDuel as OnlineNumberDuelState)
+        : null,
+    lastEvent: typeof value.lastEvent === 'string' ? value.lastEvent : '',
+  }
+}
+
+const buildOnlineRoomState = (
+  payload: OnlineRoomPayload,
+  activeGame: RoomState['activeGame'] = 'lobby',
+  phase = 'waiting',
+  turn: RoomState['turn'] = 'both',
+): RoomState => ({
+  version: 1,
+  activeGame,
+  turn,
+  phase,
+  payload: payload as unknown as Record<string, unknown>,
+  updatedAt: new Date().toISOString(),
+})
+
+const roleToPlayerIndex = (role: OnlineRole): PlayerIndex => (role === 'host' ? 0 : 1)
+const turnForPlayer = (player: PlayerIndex): RoomState['turn'] => (player === 0 ? 'host' : 'guest')
+
+const hydrateOnlineSessionFromRoom = (
+  room: GameRoom,
+  role: OnlineRole,
+  currentOnlineCount = 1,
+): OnlineSessionState => {
+  const payload = readOnlinePayload(room.room_state.payload)
+  const players: [string, string] = [
+    payload.players[0] || room.host_name || 'Host',
+    payload.players[1] || room.guest_name || '',
+  ]
+
+  return {
+    roomId: room.id,
+    roomCode: room.code,
+    role,
+    players,
+    colors: payload.colors,
+    roomStatus: room.status,
+    roomState: room.room_state,
+    onlineCount: currentOnlineCount,
+    connectionStatus: 'connecting',
+    errorMessage: '',
+  }
+}
 
 const createMineMatrix = (): MineMatrixState => ({
   view: 'plant',
@@ -765,6 +891,13 @@ function App() {
   const [celebGuessDraft, setCelebGuessDraft] = useState('')
   const [hangmanWordDraft, setHangmanWordDraft] = useState('')
   const [hangmanLetterDraft, setHangmanLetterDraft] = useState('')
+  const [onlineNameDraft, setOnlineNameDraft] = useState(profile.players[0] || '')
+  const [onlineColorDraft, setOnlineColorDraft] = useState(profile.playerColors[0])
+  const [onlineCodeDraft, setOnlineCodeDraft] = useState('')
+  const [onlineBusyAction, setOnlineBusyAction] = useState<'create' | 'join' | 'start' | 'sync' | null>(null)
+  const [onlineError, setOnlineError] = useState('')
+  const [onlineSession, setOnlineSession] = useState<OnlineSessionState | null>(null)
+  const onlineChannelRef = useRef<RealtimeChannel | null>(null)
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profile))
@@ -795,6 +928,57 @@ function App() {
     profile.players[index] || (index === 0 ? 'Player One' : 'Player Two')
 
   const partnerOf = (index: PlayerIndex) => (index === 0 ? 1 : 0) as PlayerIndex
+
+  const currentOnlinePlayerIndex = onlineSession ? roleToPlayerIndex(onlineSession.role) : null
+  const onlinePlayerName = (index: PlayerIndex) =>
+    onlineSession?.players[index] || (index === 0 ? 'Host' : 'Guest')
+
+  useEffect(() => {
+    if (!onlineSession?.roomCode) {
+      return
+    }
+
+    const channel = subscribeToOnlineRoom(onlineSession.roomCode, {
+      onRoomEvent: (event, payload) => {
+        if (event !== 'state-sync' || !payload.room) {
+          return
+        }
+
+        const room = payload.room as GameRoom
+        setOnlineSession((current) => {
+          if (!current) {
+            return current
+          }
+
+          return {
+            ...hydrateOnlineSessionFromRoom(room, current.role, current.onlineCount),
+            connectionStatus: 'live',
+          }
+        })
+        setScreen('online-room')
+      },
+      onPresenceSync: (onlineCount) => {
+        setOnlineSession((current) =>
+          current
+            ? {
+                ...current,
+                onlineCount,
+                connectionStatus: 'live',
+              }
+            : current,
+        )
+      },
+    })
+
+    onlineChannelRef.current = channel
+
+    return () => {
+      releaseOnlineRoomSubscription(channel)
+      if (onlineChannelRef.current === channel) {
+        onlineChannelRef.current = null
+      }
+    }
+  }, [onlineSession?.roomCode])
 
   const applyMatchResult = (game: string, winner: string, points: number, summary: string) => {
     const nextScore = profile.bondScore + points
@@ -876,10 +1060,385 @@ function App() {
     return outcome === playerIndex ? 'winner' : 'loser'
   }
 
+  const broadcastOnlineSnapshot = async (room: GameRoom) => {
+    if (!onlineChannelRef.current) {
+      return
+    }
+
+    try {
+      await onlineChannelRef.current.send({
+        type: 'broadcast',
+        event: 'state-sync',
+        payload: { room },
+      })
+    } catch {
+      // Realtime delivery is a convenience layer for the prototype. The row save still succeeds.
+    }
+  }
+
+  const syncOnlineRoomState = async (
+    nextRoomState: RoomState,
+    updates: Partial<Pick<GameRoom, 'game_key' | 'status' | 'guest_name'>> = {},
+  ) => {
+    if (!onlineSession) {
+      return null
+    }
+
+    const updatedRoom = await saveOnlineRoomState(onlineSession.roomId, nextRoomState, updates)
+    setOnlineSession((current) =>
+      current
+        ? {
+            ...hydrateOnlineSessionFromRoom(updatedRoom, current.role, current.onlineCount),
+            connectionStatus: 'live',
+          }
+        : current,
+    )
+    await broadcastOnlineSnapshot(updatedRoom)
+
+    return updatedRoom
+  }
+
   const openSetup = () => {
     setSetupNames([profile.players[0], profile.players[1]])
     setSetupColors([profile.playerColors[0], profile.playerColors[1]])
     setScreen('setup')
+  }
+
+  const leaveOnlineRoom = () => {
+    setOnlineSession(null)
+    setOnlineError('')
+    setOnlineCodeDraft('')
+    setSecretDraft('')
+    setGuessDraft('')
+    setScreen(playersReady ? 'home' : 'setup')
+  }
+
+  const createOnlineRoomSession = async () => {
+    if (!onlinePlayReady) {
+      setOnlineError('Add your Supabase keys before creating an online room.')
+      return
+    }
+
+    const name = onlineNameDraft.trim()
+    if (!name) {
+      setOnlineError('Add the player name that should host the room.')
+      return
+    }
+
+    setOnlineBusyAction('create')
+    setOnlineError('')
+
+    try {
+      const room = await createOnlineRoom(name)
+      const payload = createOnlinePayload(name, onlineColorDraft)
+      const roomState = buildOnlineRoomState(payload, 'lobby', 'waiting', 'both')
+      const updatedRoom = await saveOnlineRoomState(room.id, roomState, {
+        game_key: 'lobby',
+        status: 'waiting',
+      })
+
+      setOnlineSession({
+        ...hydrateOnlineSessionFromRoom(updatedRoom, 'host'),
+        connectionStatus: 'connecting',
+      })
+      setScreen('online-room')
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Unable to create room right now.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const joinOnlineRoomSession = async () => {
+    if (!onlinePlayReady) {
+      setOnlineError('Add your Supabase keys before joining an online room.')
+      return
+    }
+
+    const name = onlineNameDraft.trim()
+    const code = onlineCodeDraft.trim().toUpperCase()
+
+    if (!name || !code) {
+      setOnlineError('Add your player name and the 6-character room code.')
+      return
+    }
+
+    setOnlineBusyAction('join')
+    setOnlineError('')
+
+    try {
+      const room = await joinOnlineRoom(code, name)
+      const existingPayload = readOnlinePayload(room.room_state.payload)
+      const payload: OnlineRoomPayload = {
+        ...existingPayload,
+        players: [existingPayload.players[0] || room.host_name, name],
+        colors: [existingPayload.colors[0], onlineColorDraft],
+        lastEvent: `${name} joined the room.`,
+      }
+
+      const roomState = buildOnlineRoomState(payload, room.room_state.activeGame, room.room_state.phase, room.room_state.turn)
+      const updatedRoom = await saveOnlineRoomState(room.id, roomState, {
+        game_key: room.game_key,
+        status: payload.players[0] && payload.players[1] ? 'ready' : room.status,
+      })
+
+      setOnlineSession({
+        ...hydrateOnlineSessionFromRoom(updatedRoom, 'guest', 2),
+        connectionStatus: 'connecting',
+      })
+      setScreen('online-room')
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Unable to join that room right now.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const startOnlineNumberDuel = async () => {
+    if (!onlineSession || onlineSession.role !== 'host') {
+      return
+    }
+
+    const payload: OnlineRoomPayload = {
+      ...readOnlinePayload(onlineSession.roomState.payload),
+      numberDuel: createOnlineNumberDuel(),
+      lastEvent: 'Online Number Duel started.',
+    }
+
+    setOnlineBusyAction('start')
+
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(payload, 'number-duel', 'setup', 'both'), {
+        game_key: 'number-duel',
+        status: 'playing',
+      })
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start the online game.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const submitOnlineSecret = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!onlineSession) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.numberDuel
+    const playerIndex = roleToPlayerIndex(onlineSession.role)
+
+    if (!game || game.phase !== 'setup' || game.ready[playerIndex]) {
+      return
+    }
+
+    const parsedSecret = Number(secretDraft)
+    if (!Number.isInteger(parsedSecret) || parsedSecret < 1 || parsedSecret > 999) {
+      return
+    }
+
+    const ready = [...game.ready] as [boolean, boolean]
+    const secrets = [...game.secrets] as [number | null, number | null]
+    ready[playerIndex] = true
+    secrets[playerIndex] = parsedSecret
+
+    const nextGame: OnlineNumberDuelState = {
+      ...game,
+      ready,
+      secrets,
+      cue: createCue(playerIndex, 'Secret locked', 'Waiting for the other number to lock in.', THUMBS_UP, 'soft'),
+      statusMessage:
+        ready[0] && ready[1]
+          ? `${payload.players[0]} guesses first.`
+          : `${onlinePlayerName(playerIndex)} is ready. Waiting for the other player.`,
+    }
+
+    if (ready[0] && ready[1]) {
+      nextGame.phase = 'guess'
+      nextGame.currentTurn = 0
+      nextGame.trackers = [createTracker(secrets[1] as number), createTracker(secrets[0] as number)]
+      nextGame.cue = createCue(1, 'Both secrets locked', `${payload.players[0]} opens the guessing.`, KISS_HEART, 'success')
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            numberDuel: nextGame,
+            lastEvent: `${onlinePlayerName(playerIndex)} locked a secret number.`,
+          },
+          'number-duel',
+          nextGame.phase,
+          ready[0] && ready[1] ? turnForPlayer(0) : 'both',
+        ),
+        { game_key: 'number-duel', status: 'playing' },
+      )
+      setSecretDraft('')
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not save your secret.')
+    }
+  }
+
+  const submitOnlineGuess = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!onlineSession) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.numberDuel
+    const playerIndex = roleToPlayerIndex(onlineSession.role)
+
+    if (!game || game.phase !== 'guess' || game.currentTurn !== playerIndex) {
+      return
+    }
+
+    const tracker = game.trackers[playerIndex]
+    if (!tracker) {
+      return
+    }
+
+    const parsedGuess = Number(guessDraft)
+    if (!Number.isInteger(parsedGuess) || parsedGuess < tracker.min || parsedGuess > tracker.max) {
+      return
+    }
+
+    const trackers = [...game.trackers] as [GuessTracker, GuessTracker]
+    const updatedTracker: GuessTracker = {
+      ...tracker,
+      attempts: tracker.attempts + 1,
+      recentHints: tracker.recentHints,
+    }
+
+    if (parsedGuess === tracker.target) {
+      trackers[playerIndex] = {
+        ...updatedTracker,
+        recentHints: [
+          `${onlinePlayerName(playerIndex)} guessed ${parsedGuess} exactly in ${updatedTracker.attempts} tries.`,
+          ...tracker.recentHints,
+        ].slice(0, 4),
+      }
+
+      const nextGame: OnlineNumberDuelState = {
+        ...game,
+        phase: 'result',
+        trackers,
+        winner: playerIndex,
+        cue: createCue(playerIndex, 'Exactly right', 'That read was sharp.', KISS_HEART, 'win'),
+        statusMessage: `${onlinePlayerName(playerIndex)} guessed the number and wins the online duel.`,
+      }
+
+      try {
+        await syncOnlineRoomState(
+          buildOnlineRoomState(
+            {
+              ...payload,
+              numberDuel: nextGame,
+              lastEvent: `${onlinePlayerName(playerIndex)} won the online duel.`,
+            },
+            'number-duel',
+            'result',
+            turnForPlayer(playerIndex),
+          ),
+          { game_key: 'number-duel', status: 'finished' },
+        )
+        setGuessDraft('')
+      } catch (error) {
+        setOnlineError(error instanceof Error ? error.message : 'Could not save that guess.')
+      }
+      return
+    }
+
+    const clue = parsedGuess < tracker.target ? 'Higher' : 'Lower'
+    const previousRangeSize = tracker.max - tracker.min + 1
+    updatedTracker.min =
+      parsedGuess < tracker.target ? Math.max(tracker.min, parsedGuess + 1) : tracker.min
+    updatedTracker.max =
+      parsedGuess > tracker.target ? Math.min(tracker.max, parsedGuess - 1) : tracker.max
+    const nextRangeSize = updatedTracker.max - updatedTracker.min + 1
+    const isBigCut = nextRangeSize <= previousRangeSize / 2
+    updatedTracker.recentHints = [
+      `${onlinePlayerName(playerIndex)} guessed ${parsedGuess}. ${clue}.`,
+      ...tracker.recentHints,
+    ].slice(0, 4)
+    trackers[playerIndex] = updatedTracker
+
+    const nextTurn = partnerOf(playerIndex)
+    const nextGame: OnlineNumberDuelState = {
+      ...game,
+      phase: 'reveal',
+      trackers,
+      currentTurn: nextTurn,
+      cue: createCue(
+        nextTurn,
+        clue,
+        isBigCut ? 'Good job' : 'Keep it up',
+        isBigCut ? KISS_HEART : THUMBS_UP,
+        clue === 'Higher' ? 'higher' : 'lower',
+      ),
+      statusMessage: `${onlinePlayerName(nextTurn)} is up next.`,
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            numberDuel: nextGame,
+            lastEvent: `${onlinePlayerName(playerIndex)} guessed ${parsedGuess}.`,
+          },
+          'number-duel',
+          'reveal',
+          turnForPlayer(nextTurn),
+        ),
+        { game_key: 'number-duel', status: 'playing' },
+      )
+      setGuessDraft('')
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not save that guess.')
+    }
+  }
+
+  const advanceOnlineReveal = async () => {
+    if (!onlineSession) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.numberDuel
+
+    if (!game || game.phase !== 'reveal') {
+      return
+    }
+
+    const nextGame: OnlineNumberDuelState = {
+      ...game,
+      phase: 'guess',
+      cue: null,
+      statusMessage: `${onlinePlayerName(game.currentTurn)} is guessing now.`,
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            numberDuel: nextGame,
+            lastEvent: `${onlinePlayerName(game.currentTurn)} started the next turn.`,
+          },
+          'number-duel',
+          'guess',
+          turnForPlayer(game.currentTurn),
+        ),
+        { game_key: 'number-duel', status: 'playing' },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not advance the turn.')
+    }
   }
 
   const savePlayers = (event: FormEvent<HTMLFormElement>) => {
@@ -1987,6 +2546,83 @@ function App() {
   const hangmanCue = hangman?.cue
   const ticCue = ticTacToe?.cue
   const dotsCue = dotsBoxes?.cue
+  const onlinePayload = onlineSession ? readOnlinePayload(onlineSession.roomState.payload) : null
+  const onlineNumberDuel = onlinePayload?.numberDuel ?? null
+  const onlineEntryPanel = (
+    <article className="panel online-entry-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Online mode</p>
+          <h2>Play from two devices</h2>
+        </div>
+        <p className={`status-pill ${onlinePlayReady ? 'ready' : 'pending'}`}>
+          {onlinePlayReady ? 'Ready' : 'Needs keys'}
+        </p>
+      </div>
+      <p className="panel-note">
+        Create a room on one device, join from the other, and start with live online Number Duel.
+      </p>
+
+      <div className="online-form-grid">
+        <label>
+          Your player name
+          <input
+            type="text"
+            placeholder="Saad"
+            value={onlineNameDraft}
+            onChange={(event) => setOnlineNameDraft(event.target.value)}
+          />
+        </label>
+
+        <label>
+          Join room code
+          <input
+            type="text"
+            placeholder="AB12CD"
+            value={onlineCodeDraft}
+            onChange={(event) => setOnlineCodeDraft(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
+          />
+        </label>
+      </div>
+
+      <div className="color-picker-group">
+        <strong>Your color</strong>
+        <div className="color-swatches">
+          {PLAYER_COLOR_OPTIONS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              className={`color-swatch ${onlineColorDraft === color ? 'selected' : ''}`}
+              style={{ backgroundColor: color }}
+              onClick={() => setOnlineColorDraft(color)}
+              aria-label={`Choose ${color}`}
+            />
+          ))}
+        </div>
+      </div>
+
+      {onlineError ? <p className="online-error">{onlineError}</p> : null}
+
+      <div className="hero-actions">
+        <button
+          type="button"
+          className="primary-button"
+          onClick={createOnlineRoomSession}
+          disabled={!onlinePlayReady || onlineBusyAction !== null}
+        >
+          {onlineBusyAction === 'create' ? 'Creating room...' : 'Create Room'}
+        </button>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={joinOnlineRoomSession}
+          disabled={!onlinePlayReady || onlineBusyAction !== null}
+        >
+          {onlineBusyAction === 'join' ? 'Joining...' : 'Join Room'}
+        </button>
+      </div>
+    </article>
+  )
 
   return (
     <div className="app-shell">
@@ -2116,6 +2752,9 @@ function App() {
               Save and Start
             </button>
           </form>
+
+          <div className="setup-divider"></div>
+          {onlineEntryPanel}
         </section>
       ) : null}
 
@@ -2239,37 +2878,239 @@ function App() {
           </section>
 
           <section className="dashboard-grid">
-            <article className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Online mode</p>
-                  <h2>Room-code foundation</h2>
-                </div>
-                <p className={`status-pill ${onlinePlayReady ? 'ready' : 'pending'}`}>
-                  {onlinePlayReady ? 'Configured' : 'Needs keys'}
-                </p>
-              </div>
-              <p className="panel-note">
-                This build is ready for free Vercel hosting with Supabase rooms and realtime sync.
-                We can keep same-screen play live while adding online minigames one by one.
-              </p>
-              <div className="online-checklist">
-                <article className="check-card">
-                  <strong>Hosting</strong>
-                  <span>Vercel-ready static Vite deploy with SPA rewrites.</span>
-                </article>
-                <article className="check-card">
-                  <strong>Realtime rooms</strong>
-                  <span>Supabase room storage, presence, and broadcast helpers are scaffolded.</span>
-                </article>
-                <article className="check-card">
-                  <strong>Race game fit</strong>
-                  <span>20-second mash races work well if we sync progress in short bursts.</span>
-                </article>
-              </div>
-            </article>
+            {onlineEntryPanel}
           </section>
         </>
+      ) : null}
+
+      {screen === 'online-room' && onlineSession ? (
+        <section className="panel duel-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Online room</p>
+              <h2>Room {onlineSession.roomCode}</h2>
+            </div>
+            <button type="button" className="ghost-button" onClick={leaveOnlineRoom}>
+              Leave Room
+            </button>
+          </div>
+
+          <div className="scoreboard-row">
+            <div className="score-chip">
+              <strong>Connection</strong>
+              <span>{onlineSession.connectionStatus === 'live' ? 'Live' : 'Connecting'}</span>
+            </div>
+            <div className="score-chip">
+              <strong>Players online</strong>
+              <span>{onlineSession.onlineCount}</span>
+            </div>
+            <div className="score-chip">
+              <strong>Role</strong>
+              <span>{onlineSession.role === 'host' ? 'Host' : 'Guest'}</span>
+            </div>
+          </div>
+
+          <div className="online-room-grid">
+            <article className="turn-card">
+              <p className="turn-tag">Players</p>
+              <div className="online-player-list">
+                {[0, 1].map((playerIndex) => (
+                  <div key={playerIndex} className="online-player-card">
+                    <span
+                      className="online-player-dot"
+                      style={{ backgroundColor: onlineSession.colors[playerIndex as PlayerIndex] }}
+                    ></span>
+                    <div>
+                      <strong>{onlinePlayerName(playerIndex as PlayerIndex)}</strong>
+                      <p className="panel-note">
+                        {playerIndex === currentOnlinePlayerIndex
+                          ? 'You'
+                          : playerIndex === 1 && !onlineSession.players[1]
+                            ? 'Waiting to join'
+                            : 'Partner'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {onlineError ? <p className="online-error">{onlineError}</p> : null}
+              <p className="panel-note">
+                Share room code <strong>{onlineSession.roomCode}</strong> with your partner if they
+                have not joined yet.
+              </p>
+            </article>
+
+            <article className="turn-card">
+              {onlineSession.roomState.activeGame === 'lobby' ? (
+                <>
+                  <p className="turn-tag">Lobby</p>
+                  <h3>Get both players in, then start online play</h3>
+                  <p className="panel-note">
+                    {onlineSession.players[1]
+                      ? `${onlinePlayerName(1)} joined. The host can start Online Number Duel now.`
+                      : 'Waiting for a second player to join this room.'}
+                  </p>
+                  <div className="result-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={startOnlineNumberDuel}
+                      disabled={
+                        onlineSession.role !== 'host' ||
+                        !onlineSession.players[1] ||
+                        onlineBusyAction !== null
+                      }
+                    >
+                      {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Number Duel'}
+                    </button>
+                  </div>
+                </>
+              ) : null}
+
+              {onlineSession.roomState.activeGame === 'number-duel' && onlineNumberDuel ? (
+                <>
+                  <p className="turn-tag">Online Number Duel</p>
+
+                  {onlineNumberDuel.cue ? (
+                    <FeedbackScene
+                      cue={onlineNumberDuel.cue}
+                      speakerName={onlinePlayerName(onlineNumberDuel.cue.speaker)}
+                      speakerColor={onlineSession.colors[onlineNumberDuel.cue.speaker]}
+                    />
+                  ) : null}
+
+                  {onlineNumberDuel.phase === 'setup' && currentOnlinePlayerIndex !== null ? (
+                    <div className="online-stack">
+                      <h3>Lock your secret number</h3>
+                      <p className="panel-note">
+                        Each player picks a number from 1 to 999 on their own device.
+                      </p>
+                      <div className="scoreboard-row">
+                        {[0, 1].map((playerIndex) => (
+                          <div key={playerIndex} className="score-chip">
+                            <strong>{onlinePlayerName(playerIndex as PlayerIndex)}</strong>
+                            <span>
+                              {onlineNumberDuel.ready[playerIndex as PlayerIndex] ? 'Ready' : 'Waiting'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {!onlineNumberDuel.ready[currentOnlinePlayerIndex] ? (
+                        <form className="duel-form" onSubmit={submitOnlineSecret}>
+                          <input
+                            type="password"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={3}
+                            placeholder="Hidden number"
+                            value={secretDraft}
+                            onChange={(event) =>
+                              setSecretDraft(event.target.value.replace(/[^0-9]/g, '').slice(0, 3))
+                            }
+                          />
+                          <button type="submit" className="primary-button">
+                            Lock Secret
+                          </button>
+                        </form>
+                      ) : (
+                        <p className="panel-note">Your number is locked. Waiting for your partner.</p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {onlineNumberDuel.phase === 'guess' &&
+                  currentOnlinePlayerIndex !== null &&
+                  onlineNumberDuel.trackers[currentOnlinePlayerIndex] ? (
+                    <div className="online-stack">
+                      <h3>
+                        {onlineNumberDuel.currentTurn === currentOnlinePlayerIndex
+                          ? 'Your turn to guess'
+                          : `${onlinePlayerName(onlineNumberDuel.currentTurn)} is guessing`}
+                      </h3>
+                      <div className="tracker-grid">
+                        {[0, 1].map((playerIndex) => {
+                          const tracker = onlineNumberDuel.trackers[playerIndex as PlayerIndex]
+                          const isActive = onlineNumberDuel.currentTurn === playerIndex
+
+                          return (
+                            <article
+                              key={playerIndex}
+                              className={`tracker-card ${isActive ? 'active' : ''}`}
+                            >
+                              <p>{onlinePlayerName(playerIndex as PlayerIndex)}</p>
+                              <strong>{tracker?.attempts ?? 0} attempts</strong>
+                              <span>
+                                Range: {tracker?.min ?? 1} - {tracker?.max ?? 999}
+                              </span>
+                              <ul>
+                                {(tracker?.recentHints ?? []).map((hint) => (
+                                  <li key={hint}>{hint}</li>
+                                ))}
+                              </ul>
+                            </article>
+                          )
+                        })}
+                      </div>
+
+                      {onlineNumberDuel.currentTurn === currentOnlinePlayerIndex ? (
+                        <form className="duel-form" onSubmit={submitOnlineGuess}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={3}
+                            placeholder="Your guess"
+                            value={guessDraft}
+                            onChange={(event) =>
+                              setGuessDraft(event.target.value.replace(/[^0-9]/g, '').slice(0, 3))
+                            }
+                          />
+                          <button type="submit" className="primary-button">
+                            Guess
+                          </button>
+                        </form>
+                      ) : (
+                        <p className="panel-note">
+                          Watching {onlinePlayerName(onlineNumberDuel.currentTurn)} take this turn.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {onlineNumberDuel.phase === 'reveal' ? (
+                    <div className="online-stack">
+                      <h3>{onlineNumberDuel.statusMessage}</h3>
+                      <p className="panel-note">
+                        The clue is live for both of you. Start the next turn when you are ready.
+                      </p>
+                      <button type="button" className="primary-button" onClick={advanceOnlineReveal}>
+                        Start Next Turn
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {onlineNumberDuel.phase === 'result' && onlineNumberDuel.winner !== null ? (
+                    <div className="online-stack">
+                      <ResultStage winner={onlineNumberDuel.winner} colors={onlineSession.colors} />
+                      <h3>{onlinePlayerName(onlineNumberDuel.winner)} wins the online duel</h3>
+                      <p className="panel-note">{onlineNumberDuel.statusMessage}</p>
+                      <div className="result-actions">
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={startOnlineNumberDuel}
+                          disabled={onlineSession.role !== 'host' || onlineBusyAction !== null}
+                        >
+                          {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </article>
+          </div>
+        </section>
       ) : null}
 
       {screen === 'number-duel' && numberDuel ? (

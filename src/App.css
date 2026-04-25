@@ -573,6 +573,12 @@
   gap: 14px;
 }
 
+.setup-divider {
+  height: 1px;
+  margin: 28px 0;
+  background: linear-gradient(90deg, transparent, rgba(54, 58, 87, 0.12), transparent);
+}
+
 .status-pill {
   margin: 0;
   padding: 8px 12px;
@@ -613,6 +619,54 @@
 
 .check-card span {
   color: var(--muted);
+}
+
+.online-entry-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.online-form-grid,
+.online-room-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.online-form-grid label {
+  display: grid;
+  gap: 10px;
+  color: var(--text-strong);
+  font-weight: 700;
+}
+
+.online-player-list,
+.online-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.online-player-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(54, 58, 87, 0.08);
+}
+
+.online-player-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px rgba(54, 58, 87, 0.08);
+}
+
+.online-error {
+  margin: 0;
+  color: #b64040;
+  font-weight: 700;
 }
 
 .history-card {
@@ -1322,6 +1376,11 @@ input:focus {
   }
 
   .online-checklist {
+    grid-template-columns: 1fr;
+  }
+
+  .online-form-grid,
+  .online-room-grid {
     grid-template-columns: 1fr;
   }
 
