@@ -20,6 +20,7 @@ type Screen =
   | 'home'
   | 'online-room'
   | 'number-duel'
+  | 'word-chain'
   | 'mine-matrix'
   | 'truth-dare'
   | 'never-have-i-ever'
@@ -359,6 +360,25 @@ type DotsBoxesState = {
   cue: ReactionCue
 }
 
+type WordChainEntry = {
+  player: PlayerIndex
+  word: string
+}
+
+type WordChainState = {
+  view: 'play' | 'result'
+  currentPlayer: PlayerIndex
+  requiredLetter: string
+  history: WordChainEntry[]
+  usedWords: string[]
+  winner: PlayerIndex | null
+  resultSummary: string
+  cue: ReactionCue | null
+  statusMessage: string
+  validating: boolean
+  error: string
+}
+
 const STORAGE_KEY = 'couples-club-profile'
 const DOTS_SIZE = 4
 const GRID_CELLS = Array.from({ length: 9 }, (_, index) => index)
@@ -414,6 +434,12 @@ const PLAYABLE_GAMES = [
     description: 'Plant three mines and avoid reaching three strikes.',
     accent: '#6dd7c5',
     key: 'mine-matrix',
+  },
+  {
+    title: 'Word Chain',
+    description: 'Build a chain by using the last letter of the previous word.',
+    accent: '#59b7a5',
+    key: 'word-chain',
   },
   {
     title: 'Truth or Dare',
@@ -511,6 +537,27 @@ const CELEBRITY_QUESTIONS = [
 ]
 
 const ONLINE_CHAT_EMOJIS = ['❤️', '😘', '😂', '🔥', '👏', '😈', '😭', '🤝'] as const
+
+const WORD_CHAIN_COMMON_WORDS = new Set([
+  'apple','anchor','angel','arrow','artist','avocado','banana','basket','beach','beacon','bear','berry','bottle','button',
+  'candle','candy','carrot','castle','cat','caterpillar','cheese','circle','coconut','coffee','comet','crystal',
+  'dance','desert','dinner','dragon','dream','drum','eagle','earth','echo','emerald','engine','evening',
+  'falcon','family','feather','festival','flame','flower','forest','friend','galaxy','garden','ginger','glitter','grape','guitar',
+  'harbor','harmony','hazel','heart','helmet','honey','horizon','hotel','iceberg','island','ivory',
+  'jacket','jasmine','jelly','jungle','karma','kettle','kingdom','kitten','kiwi',
+  'ladder','lantern','lemon','letter','library','lilac','lion','lizard','lobby','lotus',
+  'magic','maple','marble','market','melody','meteor','mirror','monkey','mountain','music',
+  'napkin','needle','nectar','night','notebook','oasis','ocean','olive','opera','orange','orchid','otter',
+  'panda','paper','parade','peanut','pearl','pepper','phoenix','piano','planet','pocket','poetry','pumpkin',
+  'quartz','queen','quill',
+  'rabbit','raccoon','rainbow','river','rocket','rose','saffron','sailor','sandwich','sapphire','school','shadow','shell','silver','skyline','song','spark','spirit','star','sunset',
+  'tangerine','teacup','temple','thunder','ticket','tiger','tomato','topaz','tower','travel','tulip',
+  'umbrella','unicorn','valley','velvet','violin','voyage',
+  'walnut','waterfall','whisper','window','winter','wizard','xylophone',
+  'yacht','yellow','yogurt','yonder','zebra','zephyr','zinnia',
+]) 
+
+const WORD_CHAIN_STARTERS = ['A', 'B', 'C', 'D', 'F', 'G', 'L', 'M', 'P', 'R', 'S', 'T'] as const
 
 const HANGMAN_MISS_LINES = [
   {
@@ -824,6 +871,13 @@ const mergeRaceDashPayload = (
     return incomingPayload
   }
 
+  if (
+    incomingPayload.raceDash.startsAt !== currentPayload.raceDash.startsAt ||
+    incomingPayload.raceDash.endsAt !== currentPayload.raceDash.endsAt
+  ) {
+    return incomingPayload
+  }
+
   return {
     ...incomingPayload,
     raceDash: {
@@ -1035,6 +1089,23 @@ const createDotsBoxes = (): DotsBoxesState => ({
   cue: createCue(1, 'Draw a line', 'Close a box and you keep the turn.', THUMBS_UP, 'soft'),
 })
 
+const createWordChain = (): WordChainState => {
+  const requiredLetter = WORD_CHAIN_STARTERS[Math.floor(Math.random() * WORD_CHAIN_STARTERS.length)]
+  return {
+    view: 'play',
+    currentPlayer: 0,
+    requiredLetter,
+    history: [],
+    usedWords: [],
+    winner: null,
+    resultSummary: '',
+    cue: createCue(1, 'Word chain starts', `Use a word that begins with ${requiredLetter}.`, THUMBS_UP, 'soft'),
+    statusMessage: `${requiredLetter} is the starter letter.`,
+    validating: false,
+    error: '',
+  }
+}
+
 const getCharacterStyle = (color: string): CSSProperties =>
   ({
     '--character-color': color,
@@ -1044,6 +1115,34 @@ const normalizeText = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
 
 const includesCell = (cells: number[], cell: number) => cells.includes(cell)
+const normalizeWord = (value: string) => value.trim().toLowerCase().replace(/[^a-z]/g, '')
+const getTerminalLetter = (word: string) => {
+  const letters = normalizeWord(word)
+  return letters ? letters.at(-1)?.toUpperCase() ?? '' : ''
+}
+
+async function validateDictionaryWord(word: string) {
+  const normalized = normalizeWord(word)
+  if (!normalized || normalized.length < 2) {
+    return false
+  }
+
+  if (WORD_CHAIN_COMMON_WORDS.has(normalized)) {
+    return true
+  }
+
+  try {
+    const response = await fetch(`https://api.datamuse.com/words?sp=${encodeURIComponent(normalized)}&max=1`)
+    if (!response.ok) {
+      return false
+    }
+
+    const result = (await response.json()) as Array<{ word?: string }>
+    return normalizeWord(result[0]?.word ?? '') === normalized
+  } catch {
+    return false
+  }
+}
 
 const getTicWinner = (board: Array<PlayerIndex | null>) => {
   const lines = [
@@ -1284,12 +1383,14 @@ function App() {
   const [hangman, setHangman] = useState<HangmanState | null>(null)
   const [ticTacToe, setTicTacToe] = useState<TicTacToeState | null>(null)
   const [dotsBoxes, setDotsBoxes] = useState<DotsBoxesState | null>(null)
+  const [wordChain, setWordChain] = useState<WordChainState | null>(null)
 
   const [secretDraft, setSecretDraft] = useState('')
   const [guessDraft, setGuessDraft] = useState('')
   const [celebGuessDraft, setCelebGuessDraft] = useState('')
   const [hangmanWordDraft, setHangmanWordDraft] = useState('')
   const [hangmanLetterDraft, setHangmanLetterDraft] = useState('')
+  const [wordChainDraft, setWordChainDraft] = useState('')
   const [onlineNameDraft, setOnlineNameDraft] = useState(profile.players[0] || '')
   const [onlineColorDraft, setOnlineColorDraft] = useState(profile.playerColors[0])
   const [onlineCodeDraft, setOnlineCodeDraft] = useState('')
@@ -1548,6 +1649,9 @@ function App() {
     }
     if (screen === 'dots-boxes' && dotsBoxes?.view === 'result') {
       return dotsBoxes.winner
+    }
+    if (screen === 'word-chain' && wordChain?.view === 'result') {
+      return wordChain.winner
     }
 
     return null
@@ -4610,6 +4714,108 @@ function App() {
     })
   }
 
+  const startWordChain = () => {
+    setWordChain(createWordChain())
+    setWordChainDraft('')
+    setScreen('word-chain')
+  }
+
+  const submitWordChainWord = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!wordChain || wordChain.view !== 'play' || wordChain.validating) {
+      return
+    }
+
+    const normalized = normalizeWord(wordChainDraft)
+    if (!normalized) {
+      setWordChain({
+        ...wordChain,
+        error: 'Type a word to keep the chain moving.',
+      })
+      return
+    }
+
+    if (!normalized.startsWith(wordChain.requiredLetter.toLowerCase())) {
+      setWordChain({
+        ...wordChain,
+        error: `Your word has to start with ${wordChain.requiredLetter}.`,
+      })
+      return
+    }
+
+    if (wordChain.usedWords.includes(normalized)) {
+      setWordChain({
+        ...wordChain,
+        error: 'That word was already used in this chain.',
+      })
+      return
+    }
+
+    setWordChain({
+      ...wordChain,
+      validating: true,
+      error: '',
+      statusMessage: `Checking "${normalized}"...`,
+    })
+
+    const isValid = await validateDictionaryWord(normalized)
+    if (!isValid) {
+      setWordChain((current) =>
+        current
+          ? {
+              ...current,
+              validating: false,
+              error: `"${normalized}" did not pass the dictionary check.`,
+              statusMessage: `${currentPlayerName(current.currentPlayer)}, try another word.`,
+            }
+          : current,
+      )
+      return
+    }
+
+    const nextLetter = getTerminalLetter(normalized)
+    const nextPlayer = partnerOf(wordChain.currentPlayer)
+    setWordChain({
+      ...wordChain,
+      currentPlayer: nextPlayer,
+      requiredLetter: nextLetter,
+      history: [...wordChain.history, { player: wordChain.currentPlayer, word: normalized }],
+      usedWords: [...wordChain.usedWords, normalized],
+      validating: false,
+      error: '',
+      cue: createCue(nextPlayer, 'Chain continues', `Use ${nextLetter} to answer back.`, KISS_HEART, 'success'),
+      statusMessage: `${currentPlayerName(nextPlayer)} now needs a word that starts with ${nextLetter}.`,
+    })
+    setWordChainDraft('')
+  }
+
+  const giveUpWordChain = () => {
+    if (!wordChain || wordChain.view !== 'play') {
+      return
+    }
+
+    const winner = partnerOf(wordChain.currentPlayer)
+    const chainLength = wordChain.history.length
+    const points = 12 + chainLength
+    const summary = `${currentPlayerName(winner)} wins after a ${chainLength}-word chain.`
+    const newlyUnlocked = applyMatchResult('Word Chain', currentPlayerName(winner), points, summary)
+
+    setWordChain({
+      ...wordChain,
+      view: 'result',
+      winner,
+      resultSummary:
+        newlyUnlocked > 0
+          ? `${summary} You unlocked ${newlyUnlocked} new reward${newlyUnlocked > 1 ? 's' : ''}.`
+          : `${summary} You earned ${points} bond points.`,
+      cue: createCue(winner, 'Chain snapped', 'That last letter was too much pressure.', THUMBS_UP, 'win'),
+      statusMessage: summary,
+      validating: false,
+      error: '',
+    })
+    setWordChainDraft('')
+  }
+
   const startGameFromHub = (key: (typeof PLAYABLE_GAMES)[number]['key']) => {
     switch (key) {
       case 'number-duel':
@@ -4617,6 +4823,9 @@ function App() {
         return
       case 'mine-matrix':
         startMineMatrix()
+        return
+      case 'word-chain':
+        startWordChain()
         return
       case 'truth-dare':
         startTruthOrDare()
@@ -4651,6 +4860,7 @@ function App() {
   const hangmanCue = hangman?.cue
   const ticCue = ticTacToe?.cue
   const dotsCue = dotsBoxes?.cue
+  const wordChainCue = wordChain?.cue
   const onlinePayload = onlineSession ? readOnlinePayload(onlineSession.roomState.payload) : null
   const onlineNumberDuel = onlinePayload?.numberDuel ?? null
   const onlineRaceDash = onlinePayload?.raceDash ?? null
@@ -7246,6 +7456,107 @@ function App() {
               </div>
               <div className="result-actions">
                 <button type="button" className="primary-button" onClick={startDotsBoxes}>
+                  Play Again
+                </button>
+                <button type="button" className="ghost-button" onClick={() => setScreen('home')}>
+                  Back to Hub
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {screen === 'word-chain' && wordChain ? (
+        <section className="panel duel-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Word Chain</p>
+              <h2>Answer with a word that starts from the last letter</h2>
+            </div>
+            <button type="button" className="ghost-button" onClick={() => setScreen('home')}>
+              Back to Hub
+            </button>
+          </div>
+
+          {wordChainCue ? (
+            <FeedbackScene
+              cue={wordChainCue}
+              speakerName={currentPlayerName(wordChainCue.speaker)}
+              speakerColor={profile.playerColors[wordChainCue.speaker]}
+            />
+          ) : null}
+
+          {wordChain.view === 'play' ? (
+            <div className="duel-layout">
+              <div className="turn-card">
+                <p className="turn-tag">{currentPlayerName(wordChain.currentPlayer)} is up</p>
+                <div className="scoreboard-row">
+                  <div className="score-chip">
+                    <strong>Starter letter</strong>
+                    <span>{wordChain.requiredLetter}</span>
+                  </div>
+                  <div className="score-chip">
+                    <strong>Chain length</strong>
+                    <span>{wordChain.history.length} words</span>
+                  </div>
+                </div>
+                <h3>Use a word that starts with {wordChain.requiredLetter}</h3>
+                <p className="panel-note">{wordChain.statusMessage}</p>
+                <form className="duel-form" onSubmit={submitWordChainWord}>
+                  <input
+                    type="text"
+                    placeholder={`Word starting with ${wordChain.requiredLetter}`}
+                    value={wordChainDraft}
+                    onChange={(event) => setWordChainDraft(event.target.value)}
+                    disabled={wordChain.validating}
+                  />
+                  {wordChain.error ? <p className="online-error">{wordChain.error}</p> : null}
+                  <div className="result-actions">
+                    <button type="submit" className="primary-button" disabled={wordChain.validating}>
+                      {wordChain.validating ? 'Checking...' : 'Lock Word'}
+                    </button>
+                    <button type="button" className="ghost-button" onClick={giveUpWordChain} disabled={wordChain.validating}>
+                      Give Up
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div className="tracker-card">
+                <p>Chain history</p>
+                {wordChain.history.length > 0 ? (
+                  <ul>
+                    {wordChain.history
+                      .slice()
+                      .reverse()
+                      .map((entry, index) => (
+                        <li key={`${entry.word}-${index}`}>
+                          {currentPlayerName(entry.player)}: {entry.word}
+                        </li>
+                      ))}
+                  </ul>
+                ) : (
+                  <p className="panel-note">No words yet. The starter letter is waiting.</p>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {wordChain.view === 'result' && wordChain.winner !== null ? (
+            <div className="turn-card result-card">
+              <p className="turn-tag">Chain complete</p>
+              <ResultStage winner={wordChain.winner} colors={profile.playerColors} />
+              <h3>{currentPlayerName(wordChain.winner)} wins Word Chain</h3>
+              <p className="panel-note">{wordChain.resultSummary}</p>
+              <div className="scoreboard-row">
+                <div className="score-chip">
+                  <strong>Final chain</strong>
+                  <span>{wordChain.history.length} words</span>
+                </div>
+              </div>
+              <div className="result-actions">
+                <button type="button" className="primary-button" onClick={startWordChain}>
                   Play Again
                 </button>
                 <button type="button" className="ghost-button" onClick={() => setScreen('home')}>
