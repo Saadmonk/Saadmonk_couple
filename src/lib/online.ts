@@ -4,6 +4,7 @@ import { getSupabaseClient, hasSupabaseEnv } from './supabase'
 export type OnlineGameKey =
   | 'lobby'
   | 'number-duel'
+  | 'word-chain'
   | 'mine-matrix'
   | 'truth-dare'
   | 'never-have-i-ever'

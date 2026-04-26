@@ -220,6 +220,18 @@ type OnlineDotsBoxesState = {
   statusMessage: string
 }
 
+type OnlineWordChainState = {
+  phase: 'play' | 'result'
+  currentPlayer: PlayerIndex
+  requiredLetter: string
+  history: WordChainEntry[]
+  usedWords: string[]
+  winner: PlayerIndex | null
+  resultSummary: string
+  cue: ReactionCue | null
+  statusMessage: string
+}
+
 type OnlineEmojiMessage = {
   id: string
   player: PlayerIndex
@@ -231,6 +243,7 @@ type OnlineRoomPayload = {
   players: [string, string]
   colors: [string, string]
   numberDuel: OnlineNumberDuelState | null
+  wordChain: OnlineWordChainState | null
   raceDash: OnlineRaceDashState | null
   ticTacToe: OnlineTicTacToeState | null
   mineMatrix: OnlineMineMatrixState | null
@@ -762,10 +775,26 @@ const createOnlineDotsBoxes = (): OnlineDotsBoxesState => ({
   statusMessage: 'Host starts the board.',
 })
 
+const createOnlineWordChain = (): OnlineWordChainState => {
+  const requiredLetter = WORD_CHAIN_STARTERS[Math.floor(Math.random() * WORD_CHAIN_STARTERS.length)]
+  return {
+    phase: 'play',
+    currentPlayer: 0,
+    requiredLetter,
+    history: [],
+    usedWords: [],
+    winner: null,
+    resultSummary: '',
+    cue: createCue(1, 'Word chain starts', `Use a word that begins with ${requiredLetter}.`, THUMBS_UP, 'soft'),
+    statusMessage: `${requiredLetter} is the starter letter. Host opens the chain.`,
+  }
+}
+
 const createOnlinePayload = (hostName: string, hostColor: string): OnlineRoomPayload => ({
   players: [hostName, ''],
   colors: [hostColor, PLAYER_COLOR_OPTIONS[1]],
   numberDuel: null,
+  wordChain: null,
   raceDash: null,
   ticTacToe: null,
   mineMatrix: null,
@@ -796,6 +825,10 @@ const readOnlinePayload = (payload: RoomState['payload']): OnlineRoomPayload => 
     numberDuel:
       value.numberDuel && typeof value.numberDuel === 'object'
         ? (value.numberDuel as OnlineNumberDuelState)
+        : null,
+    wordChain:
+      value.wordChain && typeof value.wordChain === 'object'
+        ? (value.wordChain as OnlineWordChainState)
         : null,
     raceDash:
       value.raceDash && typeof value.raceDash === 'object'
@@ -853,6 +886,7 @@ const readOnlinePayload = (payload: RoomState['payload']): OnlineRoomPayload => 
 const clearOnlineGames = (payload: OnlineRoomPayload): OnlineRoomPayload => ({
   ...payload,
   numberDuel: null,
+  wordChain: null,
   raceDash: null,
   ticTacToe: null,
   mineMatrix: null,
@@ -1938,6 +1972,7 @@ function App() {
     const payload: OnlineRoomPayload = {
       ...readOnlinePayload(onlineSession.roomState.payload),
       numberDuel: createOnlineNumberDuel(),
+      wordChain: null,
       lastEvent: 'Online Number Duel started.',
     }
 
@@ -1963,6 +1998,7 @@ function App() {
     const payload: OnlineRoomPayload = {
       ...readOnlinePayload(onlineSession.roomState.payload),
       numberDuel: null,
+      wordChain: null,
       ticTacToe: null,
       raceDash: createOnlineRaceDash(),
       lastEvent: 'Online Race Dash started.',
@@ -1990,6 +2026,7 @@ function App() {
     const payload: OnlineRoomPayload = {
       ...readOnlinePayload(onlineSession.roomState.payload),
       numberDuel: null,
+      wordChain: null,
       raceDash: null,
       ticTacToe: createOnlineTicTacToe(),
       lastEvent: 'Online Tic Tac Toe started.',
@@ -2542,6 +2579,7 @@ function App() {
     const payload: OnlineRoomPayload = {
       ...readOnlinePayload(onlineSession.roomState.payload),
       numberDuel: null,
+      wordChain: null,
       raceDash: null,
       ticTacToe: null,
       truthOrDare: null,
@@ -2801,6 +2839,173 @@ function App() {
     }
   }
 
+  const startOnlineWordChain = async () => {
+    if (!onlineSession || !canStartOnlineGame(onlineSession, 'word-chain')) {
+      return
+    }
+
+    const payload: OnlineRoomPayload = {
+      ...readOnlinePayload(onlineSession.roomState.payload),
+      numberDuel: null,
+      wordChain: createOnlineWordChain(),
+      raceDash: null,
+      ticTacToe: null,
+      mineMatrix: null,
+      truthOrDare: null,
+      neverHaveI: null,
+      celebrityGuess: null,
+      hangman: null,
+      dotsBoxes: null,
+      lastEvent: 'Online Word Chain started.',
+    }
+
+    setOnlineBusyAction('start')
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(payload, 'word-chain', 'play', turnForPlayer(0)), {
+        game_key: 'word-chain',
+        status: 'playing',
+      })
+      setWordChainDraft('')
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not start Online Word Chain.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const submitOnlineWordChainWord = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.wordChain
+    if (!game || game.phase !== 'play' || game.currentPlayer !== currentOnlinePlayerIndex) {
+      return
+    }
+
+    const normalizedWord = normalizeWord(wordChainDraft)
+    if (!normalizedWord) {
+      setOnlineError(`Enter a real word starting with ${game.requiredLetter}.`)
+      return
+    }
+
+    if (!normalizedWord.startsWith(game.requiredLetter.toLowerCase())) {
+      setOnlineError(`That word needs to start with ${game.requiredLetter}.`)
+      return
+    }
+
+    if (game.usedWords.includes(normalizedWord)) {
+      setOnlineError('That word was already used in this chain.')
+      return
+    }
+
+    setOnlineBusyAction('sync')
+    setOnlineError('')
+
+    const isValidWord = await validateDictionaryWord(normalizedWord)
+    if (!isValidWord) {
+      setOnlineBusyAction(null)
+      setOnlineError('That word did not pass the dictionary check.')
+      return
+    }
+
+    const nextLetter = getTerminalLetter(normalizedWord)
+    const nextPlayer = partnerOf(currentOnlinePlayerIndex)
+    const nextHistory = [
+      ...game.history,
+      {
+        player: currentOnlinePlayerIndex,
+        word: normalizedWord.toUpperCase(),
+      },
+    ]
+
+    const nextGame: OnlineWordChainState = {
+      ...game,
+      currentPlayer: nextPlayer,
+      requiredLetter: nextLetter.toUpperCase(),
+      history: nextHistory,
+      usedWords: [...game.usedWords, normalizedWord],
+      cue: createCue(
+        nextPlayer,
+        'Good chain',
+        `${onlinePlayerName(nextPlayer)} needs a word that starts with ${nextLetter.toUpperCase()}.`,
+        nextHistory.length >= 5 ? KISS_HEART : THUMBS_UP,
+        nextHistory.length >= 5 ? 'success' : 'soft',
+      ),
+      statusMessage: `${onlinePlayerName(nextPlayer)} now needs a word that starts with ${nextLetter.toUpperCase()}.`,
+    }
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            wordChain: nextGame,
+            lastEvent: `${onlinePlayerName(currentOnlinePlayerIndex)} played ${normalizedWord.toUpperCase()}.`,
+          },
+          'word-chain',
+          'play',
+          turnForPlayer(nextPlayer),
+        ),
+        { game_key: 'word-chain', status: 'playing' },
+      )
+      setWordChainDraft('')
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not save that word.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const giveUpOnlineWordChain = async () => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const game = payload.wordChain
+    if (!game || game.phase !== 'play') {
+      return
+    }
+
+    const winner = partnerOf(currentOnlinePlayerIndex)
+    const summary = `${onlinePlayerName(winner)} wins after a ${game.history.length}-word online chain.`
+    const nextGame: OnlineWordChainState = {
+      ...game,
+      phase: 'result',
+      winner,
+      resultSummary: summary,
+      cue: createCue(winner, 'Chain snapped', `${onlinePlayerName(currentOnlinePlayerIndex)} tapped out.`, KISS_HEART, 'win'),
+      statusMessage: summary,
+    }
+
+    setOnlineBusyAction('sync')
+    setOnlineError('')
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            wordChain: nextGame,
+            lastEvent: `${onlinePlayerName(currentOnlinePlayerIndex)} gave up the word chain.`,
+          },
+          'word-chain',
+          'result',
+          'both',
+        ),
+        { game_key: 'word-chain', status: 'finished' },
+      )
+      setWordChainDraft('')
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not finish Online Word Chain.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
   const startOnlineTruthOrDare = async () => {
     if (!onlineSession || !canStartOnlineGame(onlineSession, 'truth-dare')) {
       return
@@ -2809,6 +3014,7 @@ function App() {
     const payload: OnlineRoomPayload = {
       ...readOnlinePayload(onlineSession.roomState.payload),
       numberDuel: null,
+      wordChain: null,
       raceDash: null,
       ticTacToe: null,
       mineMatrix: null,
@@ -2958,6 +3164,7 @@ function App() {
     const payload: OnlineRoomPayload = {
       ...readOnlinePayload(onlineSession.roomState.payload),
       numberDuel: null,
+      wordChain: null,
       raceDash: null,
       ticTacToe: null,
       mineMatrix: null,
@@ -3110,6 +3317,7 @@ function App() {
     const payload: OnlineRoomPayload = {
       ...readOnlinePayload(onlineSession.roomState.payload),
       numberDuel: null,
+      wordChain: null,
       raceDash: null,
       ticTacToe: null,
       mineMatrix: null,
@@ -3309,6 +3517,7 @@ function App() {
     const payload: OnlineRoomPayload = {
       ...readOnlinePayload(onlineSession.roomState.payload),
       numberDuel: null,
+      wordChain: null,
       raceDash: null,
       ticTacToe: null,
       mineMatrix: null,
@@ -3540,6 +3749,7 @@ function App() {
     const payload: OnlineRoomPayload = {
       ...readOnlinePayload(onlineSession.roomState.payload),
       numberDuel: null,
+      wordChain: null,
       raceDash: null,
       ticTacToe: null,
       mineMatrix: null,
@@ -4863,6 +5073,7 @@ function App() {
   const wordChainCue = wordChain?.cue
   const onlinePayload = onlineSession ? readOnlinePayload(onlineSession.roomState.payload) : null
   const onlineNumberDuel = onlinePayload?.numberDuel ?? null
+  const onlineWordChain = onlinePayload?.wordChain ?? null
   const onlineRaceDash = onlinePayload?.raceDash ?? null
   const onlineTicTacToe = onlinePayload?.ticTacToe ?? null
   const onlineMineMatrix = onlinePayload?.mineMatrix ?? null
@@ -5434,6 +5645,18 @@ function App() {
                     <button
                       type="button"
                       className="ghost-button"
+                      onClick={startOnlineWordChain}
+                      disabled={
+                        onlineSession.role !== 'host' ||
+                        !onlineSession.players[1] ||
+                        onlineBusyAction !== null
+                      }
+                    >
+                      {onlineBusyAction === 'start' ? 'Starting...' : 'Start Online Word Chain'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
                       onClick={startOnlineRaceDash}
                       disabled={
                         onlineSession.role !== 'host' ||
@@ -5789,6 +6012,121 @@ function App() {
                       <p className="panel-note">{onlineRaceDash.statusMessage}</p>
                     )}
                   </div>
+                </>
+              ) : null}
+
+              {onlineSession.roomState.activeGame === 'word-chain' && onlineWordChain ? (
+                <>
+                  <p className="turn-tag">Online Word Chain</p>
+                  {onlineWordChain.cue ? (
+                    <FeedbackScene
+                      cue={onlineWordChain.cue}
+                      speakerName={onlinePlayerName(onlineWordChain.cue.speaker)}
+                      speakerColor={onlineSession.colors[onlineWordChain.cue.speaker]}
+                    />
+                  ) : null}
+
+                  {onlineWordChain.phase === 'play' ? (
+                    <div className="duel-layout">
+                      <div className="turn-card">
+                        <p className="turn-tag">
+                          {currentOnlinePlayerIndex === onlineWordChain.currentPlayer
+                            ? 'Your turn'
+                            : `${onlinePlayerName(onlineWordChain.currentPlayer)} is up`}
+                        </p>
+                        <div className="scoreboard-row">
+                          <div className="score-chip">
+                            <strong>Starter letter</strong>
+                            <span>{onlineWordChain.requiredLetter}</span>
+                          </div>
+                          <div className="score-chip">
+                            <strong>Chain length</strong>
+                            <span>{onlineWordChain.history.length} words</span>
+                          </div>
+                        </div>
+                        <h3>Use a word that starts with {onlineWordChain.requiredLetter}</h3>
+                        <p className="panel-note">{onlineWordChain.statusMessage}</p>
+                        <form className="duel-form" onSubmit={submitOnlineWordChainWord}>
+                          <input
+                            type="text"
+                            placeholder={`Word starting with ${onlineWordChain.requiredLetter}`}
+                            value={wordChainDraft}
+                            onChange={(event) => setWordChainDraft(event.target.value)}
+                            disabled={
+                              currentOnlinePlayerIndex !== onlineWordChain.currentPlayer ||
+                              onlineBusyAction === 'sync'
+                            }
+                          />
+                          {onlineError ? <p className="online-error">{onlineError}</p> : null}
+                          <div className="result-actions">
+                            <button
+                              type="submit"
+                              className="primary-button"
+                              disabled={
+                                currentOnlinePlayerIndex !== onlineWordChain.currentPlayer ||
+                                onlineBusyAction === 'sync'
+                              }
+                            >
+                              {onlineBusyAction === 'sync' ? 'Checking...' : 'Lock Word'}
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={giveUpOnlineWordChain}
+                              disabled={
+                                currentOnlinePlayerIndex !== onlineWordChain.currentPlayer ||
+                                onlineBusyAction === 'sync'
+                              }
+                            >
+                              Give Up
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+
+                      <div className="tracker-card">
+                        <p>Chain history</p>
+                        {onlineWordChain.history.length > 0 ? (
+                          <ul>
+                            {onlineWordChain.history
+                              .slice()
+                              .reverse()
+                              .map((entry, index) => (
+                                <li key={`${entry.word}-${index}`}>
+                                  {onlinePlayerName(entry.player)}: {entry.word}
+                                </li>
+                              ))}
+                          </ul>
+                        ) : (
+                          <p className="panel-note">No words yet. Start the chain strong.</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {onlineWordChain.phase === 'result' && onlineWordChain.winner !== null ? (
+                    <div className="online-stack">
+                      <ResultStage winner={onlineWordChain.winner} colors={onlineSession.colors} />
+                      <h3>{onlinePlayerName(onlineWordChain.winner)} wins Online Word Chain</h3>
+                      <p className="panel-note">{onlineWordChain.resultSummary}</p>
+                      <div className="scoreboard-row">
+                        <div className="score-chip">
+                          <strong>Final chain</strong>
+                          <span>{onlineWordChain.history.length} words</span>
+                        </div>
+                      </div>
+                      <div className="result-actions">
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={startOnlineWordChain}
+                          disabled={onlineBusyAction !== null}
+                        >
+                          {onlineBusyAction === 'start' ? 'Restarting...' : 'Play Again'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </>
               ) : null}
 
