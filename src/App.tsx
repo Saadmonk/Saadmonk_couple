@@ -27,6 +27,7 @@ type Screen =
   | 'hangman'
   | 'tic-tac-toe'
   | 'dots-boxes'
+type HomeMode = 'same-screen' | 'online'
 type CharacterMood = 'happy' | 'sad'
 type CharacterEnergy = 'none' | 'winner' | 'loser'
 type SessionWinner = PlayerIndex | 'both' | 'draw' | null
@@ -210,6 +211,13 @@ type OnlineDotsBoxesState = {
   statusMessage: string
 }
 
+type OnlineEmojiMessage = {
+  id: string
+  player: PlayerIndex
+  emoji: string
+  createdAt: string
+}
+
 type OnlineRoomPayload = {
   players: [string, string]
   colors: [string, string]
@@ -222,6 +230,7 @@ type OnlineRoomPayload = {
   celebrityGuess: OnlineCelebrityGuessState | null
   hangman: OnlineHangmanState | null
   dotsBoxes: OnlineDotsBoxesState | null
+  chat: OnlineEmojiMessage[]
   lastEvent: string
 }
 
@@ -493,6 +502,8 @@ const CELEBRITY_QUESTIONS = [
   'Are they a woman?',
 ]
 
+const ONLINE_CHAT_EMOJIS = ['❤️', '😘', '😂', '🔥', '👏', '😈', '😭', '🤝'] as const
+
 const HANGMAN_MISS_LINES = [
   {
     message: 'Okay, tiny problem',
@@ -700,6 +711,7 @@ const createOnlinePayload = (hostName: string, hostColor: string): OnlineRoomPay
   celebrityGuess: null,
   hangman: null,
   dotsBoxes: null,
+  chat: [],
   lastEvent: 'Room created',
 })
 
@@ -754,7 +766,102 @@ const readOnlinePayload = (payload: RoomState['payload']): OnlineRoomPayload => 
       value.dotsBoxes && typeof value.dotsBoxes === 'object'
         ? (value.dotsBoxes as OnlineDotsBoxesState)
         : null,
+    chat: Array.isArray(value.chat)
+      ? value.chat
+          .filter((item): item is OnlineEmojiMessage => {
+            if (!item || typeof item !== 'object') {
+              return false
+            }
+
+            const entry = item as Partial<OnlineEmojiMessage>
+            return (
+              (entry.player === 0 || entry.player === 1) &&
+              typeof entry.id === 'string' &&
+              typeof entry.emoji === 'string' &&
+              typeof entry.createdAt === 'string'
+            )
+          })
+          .slice(-18)
+      : [],
     lastEvent: typeof value.lastEvent === 'string' ? value.lastEvent : '',
+  }
+}
+
+const clearOnlineGames = (payload: OnlineRoomPayload): OnlineRoomPayload => ({
+  ...payload,
+  numberDuel: null,
+  raceDash: null,
+  ticTacToe: null,
+  mineMatrix: null,
+  truthOrDare: null,
+  neverHaveI: null,
+  celebrityGuess: null,
+  hangman: null,
+  dotsBoxes: null,
+})
+
+const mergeRaceDashPayload = (
+  incomingPayload: OnlineRoomPayload,
+  currentPayload: OnlineRoomPayload,
+): OnlineRoomPayload => {
+  if (!incomingPayload.raceDash || !currentPayload.raceDash) {
+    return incomingPayload
+  }
+
+  return {
+    ...incomingPayload,
+    raceDash: {
+      ...incomingPayload.raceDash,
+      phase:
+        incomingPayload.raceDash.phase === 'result' || currentPayload.raceDash.phase !== 'result'
+          ? incomingPayload.raceDash.phase
+          : currentPayload.raceDash.phase,
+      taps: [
+        Math.max(incomingPayload.raceDash.taps[0], currentPayload.raceDash.taps[0]),
+        Math.max(incomingPayload.raceDash.taps[1], currentPayload.raceDash.taps[1]),
+      ],
+      progress: [
+        Math.max(incomingPayload.raceDash.progress[0], currentPayload.raceDash.progress[0]),
+        Math.max(incomingPayload.raceDash.progress[1], currentPayload.raceDash.progress[1]),
+      ],
+      winner:
+        incomingPayload.raceDash.winner ??
+        (currentPayload.raceDash.phase === 'result' ? currentPayload.raceDash.winner : null),
+      cue:
+        incomingPayload.raceDash.phase === 'result'
+          ? incomingPayload.raceDash.cue
+          : currentPayload.raceDash.phase === 'result'
+            ? currentPayload.raceDash.cue
+            : incomingPayload.raceDash.cue,
+      statusMessage:
+        incomingPayload.raceDash.phase === 'result'
+          ? incomingPayload.raceDash.statusMessage
+          : currentPayload.raceDash.phase === 'result'
+            ? currentPayload.raceDash.statusMessage
+            : incomingPayload.raceDash.statusMessage || currentPayload.raceDash.statusMessage,
+    },
+  }
+}
+
+const mergeIncomingRoomWithCurrentState = (room: GameRoom, currentRoomState: RoomState | null): GameRoom => {
+  if (!currentRoomState) {
+    return room
+  }
+
+  if (room.room_state.activeGame !== 'race-dash' || currentRoomState.activeGame !== 'race-dash') {
+    return room
+  }
+
+  const incomingPayload = readOnlinePayload(room.room_state.payload)
+  const currentPayload = readOnlinePayload(currentRoomState.payload)
+  const mergedPayload = mergeRaceDashPayload(incomingPayload, currentPayload)
+
+  return {
+    ...room,
+    room_state: {
+      ...room.room_state,
+      payload: mergedPayload as unknown as Record<string, unknown>,
+    },
   }
 }
 
@@ -1158,12 +1265,24 @@ function App() {
   const [onlineBusyAction, setOnlineBusyAction] = useState<'create' | 'join' | 'start' | 'sync' | null>(null)
   const [onlineError, setOnlineError] = useState('')
   const [onlineSession, setOnlineSession] = useState<OnlineSessionState | null>(null)
+  const [homeMode, setHomeMode] = useState<HomeMode>('same-screen')
+  const [uiClock, setUiClock] = useState(() => Date.now())
   const [raceClock, setRaceClock] = useState(() => Date.now())
   const onlineChannelRef = useRef<RealtimeChannel | null>(null)
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profile))
   }, [profile])
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setUiClock(Date.now())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [])
 
   const playersReady = profile.players[0].trim() && profile.players[1].trim()
   const onlinePlayReady = isOnlinePlayConfigured()
@@ -1257,8 +1376,10 @@ function App() {
             return current
           }
 
+          const mergedRoom = mergeIncomingRoomWithCurrentState(room, current.roomState)
+
           return {
-            ...hydrateOnlineSessionFromRoom(room, current.role, current.onlineCount),
+            ...hydrateOnlineSessionFromRoom(mergedRoom, current.role, current.onlineCount),
             connectionStatus: 'live',
           }
         })
@@ -1306,8 +1427,10 @@ function App() {
             return current
           }
 
+          const mergedRoom = mergeIncomingRoomWithCurrentState(room, current.roomState)
+
           return {
-            ...hydrateOnlineSessionFromRoom(room, current.role, current.onlineCount),
+            ...hydrateOnlineSessionFromRoom(mergedRoom, current.role, current.onlineCount),
             connectionStatus: 'live',
           }
         })
@@ -1458,7 +1581,11 @@ function App() {
       setOnlineSession((current) =>
         current
           ? {
-              ...hydrateOnlineSessionFromRoom(room, current.role, current.onlineCount),
+              ...hydrateOnlineSessionFromRoom(
+                mergeIncomingRoomWithCurrentState(room, current.roomState),
+                current.role,
+                current.onlineCount,
+              ),
               connectionStatus: 'live',
               errorMessage: '',
             }
@@ -1506,6 +1633,82 @@ function App() {
     setScreen(playersReady ? 'home' : 'setup')
   }
 
+  const resumeOnlineRoom = () => {
+    if (!onlineSession) {
+      return
+    }
+
+    setHomeMode('online')
+    setScreen('online-room')
+  }
+
+  const returnOnlineRoomToLobby = async () => {
+    if (!onlineSession || onlineSession.role !== 'host') {
+      return
+    }
+
+    const payload = clearOnlineGames(readOnlinePayload(onlineSession.roomState.payload))
+    const nextPayload: OnlineRoomPayload = {
+      ...payload,
+      lastEvent: 'Back in the room lobby.',
+    }
+
+    setOnlineBusyAction('sync')
+    try {
+      await syncOnlineRoomState(buildOnlineRoomState(nextPayload, 'lobby', 'waiting', 'both'), {
+        game_key: 'lobby',
+        status: nextPayload.players[1] ? 'ready' : 'waiting',
+      })
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not return to the lobby.')
+    } finally {
+      setOnlineBusyAction(null)
+    }
+  }
+
+  const sendOnlineEmoji = async (emoji: string) => {
+    if (!onlineSession || currentOnlinePlayerIndex === null) {
+      return
+    }
+
+    const payload = readOnlinePayload(onlineSession.roomState.payload)
+    const chat: OnlineEmojiMessage[] = [
+      ...payload.chat,
+      {
+        id: `${new Date().toISOString()}-${currentOnlinePlayerIndex}`,
+        player: currentOnlinePlayerIndex,
+        emoji,
+        createdAt: new Date().toISOString(),
+      },
+    ].slice(-18)
+
+    try {
+      await syncOnlineRoomState(
+        buildOnlineRoomState(
+          {
+            ...payload,
+            chat,
+            lastEvent: `${onlinePlayerName(currentOnlinePlayerIndex)} sent an emoji.`,
+          },
+          onlineSession.roomState.activeGame,
+          onlineSession.roomState.phase,
+          onlineSession.roomState.turn,
+        ),
+        {
+          game_key: onlineSession.roomState.activeGame,
+          status:
+            onlineSession.roomState.activeGame === 'lobby'
+              ? payload.players[1]
+                ? 'ready'
+                : 'waiting'
+              : onlineSession.roomStatus,
+        },
+      )
+    } catch (error) {
+      setOnlineError(error instanceof Error ? error.message : 'Could not send the emoji.')
+    }
+  }
+
   const createOnlineRoomSession = async () => {
     if (!onlinePlayReady) {
       setOnlineError('Add your Supabase keys before creating an online room.')
@@ -1535,6 +1738,7 @@ function App() {
         ...hydrateOnlineSessionFromRoom(updatedRoom, 'host'),
         connectionStatus: 'connecting',
       })
+      setHomeMode('online')
       setScreen('online-room')
     } catch (error) {
       setOnlineError(error instanceof Error ? error.message : 'Unable to create room right now.')
@@ -1581,6 +1785,7 @@ function App() {
         ...hydrateOnlineSessionFromRoom(updatedRoom, 'guest', 2),
         connectionStatus: 'connecting',
       })
+      setHomeMode('online')
       setScreen('online-room')
     } catch (error) {
       setOnlineError(error instanceof Error ? error.message : 'Unable to join that room right now.')
@@ -1722,7 +1927,8 @@ function App() {
 
     const startsAt = new Date(raceDash.startsAt).getTime()
     const endsAt = new Date(raceDash.endsAt).getTime()
-    if (Date.now() < startsAt || Date.now() > endsAt || raceDash.phase === 'result') {
+    const currentTime = raceClock
+    if (currentTime < startsAt || currentTime > endsAt || raceDash.phase === 'result') {
       return
     }
 
@@ -1836,7 +2042,7 @@ function App() {
         return
       }
 
-      if (Date.now() < startsAt || Date.now() > endsAt || raceDash.phase === 'result') {
+      if (raceClock < startsAt || raceClock > endsAt || raceDash.phase === 'result') {
         return
       }
 
@@ -4308,6 +4514,17 @@ function App() {
   const onlineCelebrityGuess = onlinePayload?.celebrityGuess ?? null
   const onlineHangman = onlinePayload?.hangman ?? null
   const onlineDotsBoxes = onlinePayload?.dotsBoxes ?? null
+  const onlineChat = onlinePayload?.chat ?? []
+  const latestPartnerEmoji =
+    currentOnlinePlayerIndex === null
+      ? null
+      : [...onlineChat]
+          .reverse()
+          .find((entry) => entry.player !== currentOnlinePlayerIndex) ?? null
+  const recentPartnerEmoji =
+    latestPartnerEmoji && uiClock - new Date(latestPartnerEmoji.createdAt).getTime() < 9000
+      ? latestPartnerEmoji
+      : null
   const onlineRaceStartsAt = onlineRaceDash ? new Date(onlineRaceDash.startsAt).getTime() : 0
   const onlineRaceEndsAt = onlineRaceDash ? new Date(onlineRaceDash.endsAt).getTime() : 0
   const onlineRacePhase =
@@ -4336,7 +4553,7 @@ function App() {
         </p>
       </div>
       <p className="panel-note">
-        Create a room on one device, join from the other, and start with live online Number Duel.
+        Create a room on one device, join from the other, and keep the same room alive while you hop between games.
       </p>
 
       <div className="online-form-grid">
@@ -4536,126 +4753,183 @@ function App() {
 
       {screen === 'home' ? (
         <>
-          <section className="dashboard-grid">
-            <article className="panel bond-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Bond meter</p>
-                  <h2>
-                    {profile.players[0]} + {profile.players[1]}
-                  </h2>
-                </div>
-                <p className="score-pill">{profile.bondScore} pts</p>
+          <section className="panel mode-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Choose your mode</p>
+                <h2>Launch like a game, not a webpage</h2>
               </div>
-
-              <div className="meter-track" role="presentation">
-                <div className="meter-fill" style={{ width: `${meterProgress}%` }}></div>
-              </div>
-
-              <div className="stats-row">
-                <div>
-                  <strong>{profile.matchesPlayed}</strong>
-                  <span>matches played</span>
-                </div>
-                <div>
-                  <strong>{profile.unlockedRewardIds.length}</strong>
-                  <span>rewards unlocked</span>
-                </div>
-                <div>
-                  <strong>{PLAYABLE_GAMES.length}</strong>
-                  <span>games live</span>
-                </div>
-              </div>
-
-              <p className="panel-note">
-                {nextReward
-                  ? `${nextReward.threshold - profile.bondScore} more points to unlock "${nextReward.title}".`
-                  : 'All current rewards are unlocked. Add a harder milestone after QA.'}
-              </p>
-            </article>
-
-            <article className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Playable collection</p>
-                  <h2>Game shelf</h2>
-                </div>
-              </div>
-              <div className="game-grid">
-                {PLAYABLE_GAMES.map((game) => (
-                  <GameTile
-                    key={game.key}
-                    title={game.title}
-                    description={game.description}
-                    accent={game.accent}
-                    action={() => startGameFromHub(game.key)}
-                  />
-                ))}
-              </div>
-            </article>
+              <p className="panel-note">Swap between same-computer play and room-based online play.</p>
+            </div>
+            <div className="mode-switch">
+              <button
+                type="button"
+                className={`mode-switch-button ${homeMode === 'same-screen' ? 'active' : ''}`}
+                onClick={() => setHomeMode('same-screen')}
+              >
+                Same Computer
+              </button>
+              <button
+                type="button"
+                className={`mode-switch-button ${homeMode === 'online' ? 'active' : ''}`}
+                onClick={() => setHomeMode('online')}
+              >
+                Online
+              </button>
+            </div>
           </section>
 
-          <section className="dashboard-grid">
-            <article className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Rewards</p>
-                  <h2>Date unlocks</h2>
-                </div>
-              </div>
+          {homeMode === 'same-screen' ? (
+            <>
+              <section className="dashboard-grid">
+                <article className="panel bond-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <p className="eyebrow">Bond meter</p>
+                      <h2>
+                        {profile.players[0]} + {profile.players[1]}
+                      </h2>
+                    </div>
+                    <p className="score-pill">{profile.bondScore} pts</p>
+                  </div>
 
-              <div className="reward-grid">
-                {REWARDS.map((reward) => {
-                  const unlocked = profile.unlockedRewardIds.includes(reward.id)
+                  <div className="meter-track" role="presentation">
+                    <div className="meter-fill" style={{ width: `${meterProgress}%` }}></div>
+                  </div>
 
-                  return (
-                    <article
-                      key={reward.id}
-                      className={`reward-card ${unlocked ? 'unlocked' : 'locked'}`}
-                    >
-                      <span className="reward-threshold">{reward.threshold} pts</span>
-                      <h3>{reward.title}</h3>
-                      <p>{reward.description}</p>
-                    </article>
-                  )
-                })}
-              </div>
-            </article>
+                  <div className="stats-row">
+                    <div>
+                      <strong>{profile.matchesPlayed}</strong>
+                      <span>matches played</span>
+                    </div>
+                    <div>
+                      <strong>{profile.unlockedRewardIds.length}</strong>
+                      <span>rewards unlocked</span>
+                    </div>
+                    <div>
+                      <strong>{PLAYABLE_GAMES.length}</strong>
+                      <span>games live</span>
+                    </div>
+                  </div>
 
-            <article className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Recent moments</p>
-                  <h2>Match feed</h2>
-                </div>
-              </div>
+                  <p className="panel-note">
+                    {nextReward
+                      ? `${nextReward.threshold - profile.bondScore} more points to unlock "${nextReward.title}".`
+                      : 'All current rewards are unlocked. Add a harder milestone after QA.'}
+                  </p>
+                </article>
 
-              {profile.history.length > 0 ? (
-                <div className="history-list">
-                  {profile.history.map((entry) => (
-                    <article key={entry.id} className="history-card">
+                <article className="panel">
+                  <div className="panel-heading">
+                    <div>
+                      <p className="eyebrow">Playable collection</p>
+                      <h2>Game shelf</h2>
+                    </div>
+                  </div>
+                  <div className="game-grid">
+                    {PLAYABLE_GAMES.map((game) => (
+                      <GameTile
+                        key={game.key}
+                        title={game.title}
+                        description={game.description}
+                        accent={game.accent}
+                        action={() => startGameFromHub(game.key)}
+                      />
+                    ))}
+                  </div>
+                </article>
+              </section>
+
+              <section className="dashboard-grid">
+                <article className="panel">
+                  <div className="panel-heading">
+                    <div>
+                      <p className="eyebrow">Rewards</p>
+                      <h2>Date unlocks</h2>
+                    </div>
+                  </div>
+
+                  <div className="reward-grid">
+                    {REWARDS.map((reward) => {
+                      const unlocked = profile.unlockedRewardIds.includes(reward.id)
+
+                      return (
+                        <article
+                          key={reward.id}
+                          className={`reward-card ${unlocked ? 'unlocked' : 'locked'}`}
+                        >
+                          <span className="reward-threshold">{reward.threshold} pts</span>
+                          <h3>{reward.title}</h3>
+                          <p>{reward.description}</p>
+                        </article>
+                      )
+                    })}
+                  </div>
+                </article>
+
+                <article className="panel">
+                  <div className="panel-heading">
+                    <div>
+                      <p className="eyebrow">Recent moments</p>
+                      <h2>Match feed</h2>
+                    </div>
+                  </div>
+
+                  {profile.history.length > 0 ? (
+                    <div className="history-list">
+                      {profile.history.map((entry) => (
+                        <article key={entry.id} className="history-card">
+                          <div>
+                            <strong>{entry.game}</strong>
+                            <p>{entry.summary}</p>
+                          </div>
+                          <div className="history-meta">
+                            <span>{entry.winner}</span>
+                            <small>+{entry.points} bond</small>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="panel-note">
+                      Play your first few rounds and your shared story will start filling this feed.
+                    </p>
+                  )}
+                </article>
+              </section>
+            </>
+          ) : (
+            <>
+              {onlineSession ? (
+                <section className="dashboard-grid">
+                  <article className="panel online-resume-panel">
+                    <div className="panel-heading">
                       <div>
-                        <strong>{entry.game}</strong>
-                        <p>{entry.summary}</p>
+                        <p className="eyebrow">Current room</p>
+                        <h2>Room {onlineSession.roomCode}</h2>
                       </div>
-                      <div className="history-meta">
-                        <span>{entry.winner}</span>
-                        <small>+{entry.points} bond</small>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <p className="panel-note">
-                  Play your first few rounds and your shared story will start filling this feed.
-                </p>
-              )}
-            </article>
-          </section>
+                      <p className="status-pill ready">
+                        {onlineSession.players[1] ? 'Two players ready' : 'Waiting for partner'}
+                      </p>
+                    </div>
+                    <p className="panel-note">
+                      Your room stays open between games now, so you can jump back into the same lobby.
+                    </p>
+                    <div className="hero-actions">
+                      <button type="button" className="primary-button" onClick={resumeOnlineRoom}>
+                        Resume Room
+                      </button>
+                      <button type="button" className="ghost-button" onClick={leaveOnlineRoom}>
+                        Leave Room
+                      </button>
+                    </div>
+                  </article>
+                </section>
+              ) : null}
 
-          <section className="dashboard-grid">
-            {onlineEntryPanel}
-          </section>
+              <section className="dashboard-grid">{onlineEntryPanel}</section>
+            </>
+          )}
         </>
       ) : null}
 
@@ -4667,6 +4941,16 @@ function App() {
               <h2>Room {onlineSession.roomCode}</h2>
             </div>
             <div className="result-actions">
+              {onlineSession.roomState.activeGame !== 'lobby' ? (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={returnOnlineRoomToLobby}
+                  disabled={onlineSession.role !== 'host' || onlineBusyAction === 'sync'}
+                >
+                  {onlineBusyAction === 'sync' ? 'Returning...' : 'Back to Lobby'}
+                </button>
+              ) : null}
               <button type="button" className="ghost-button" onClick={refreshOnlineRoom}>
                 Refresh Room
               </button>
@@ -4719,9 +5003,50 @@ function App() {
                 Share room code <strong>{onlineSession.roomCode}</strong> with your partner if they
                 have not joined yet.
               </p>
+              <div className="online-chat-panel">
+                <div className="panel-heading online-chat-heading">
+                  <div>
+                    <p className="turn-tag">Emoji chat</p>
+                    <h3>Quick reactions</h3>
+                  </div>
+                </div>
+                <div className="emoji-toolbar">
+                  {ONLINE_CHAT_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className="emoji-button"
+                      onClick={() => void sendOnlineEmoji(emoji)}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+                <div className="emoji-feed">
+                  {onlineChat.length > 0 ? (
+                    [...onlineChat].reverse().map((entry) => (
+                      <article
+                        key={entry.id}
+                        className={`emoji-feed-item ${entry.player === currentOnlinePlayerIndex ? 'self' : 'partner'}`}
+                      >
+                        <strong>{onlinePlayerName(entry.player)}</strong>
+                        <span>{entry.emoji}</span>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="panel-note">Send a heart, roast, or panic emoji while you play.</p>
+                  )}
+                </div>
+              </div>
             </article>
 
             <article className="turn-card">
+              {onlineSession.roomState.activeGame !== 'lobby' && recentPartnerEmoji ? (
+                <div className="emoji-pop">
+                  <span className="emoji-pop-mark">{recentPartnerEmoji.emoji}</span>
+                  <span>{onlinePlayerName(recentPartnerEmoji.player)} pinged you</span>
+                </div>
+              ) : null}
               {onlineSession.roomState.activeGame === 'lobby' ? (
                 <>
                   <p className="turn-tag">Lobby</p>
