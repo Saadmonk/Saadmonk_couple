@@ -5474,7 +5474,7 @@ function App() {
                     />
                   ) : null}
 
-                  <div className="online-stack">
+                  <div className="online-stack game-stage-3d">
                     <div className="scoreboard-row">
                       <div className="score-chip">
                         <strong>Status</strong>
@@ -5492,14 +5492,26 @@ function App() {
                       </div>
                     </div>
 
+                    <div className={`race-scene race-scene-${onlineRacePhase}`}>
+                      <div className="scene-glow scene-glow-left"></div>
+                      <div className="scene-glow scene-glow-right"></div>
+                      <div className="scene-stripes"></div>
                     <div className="race-lane-list">
                       {[0, 1].map((playerIndex) => (
-                        <article key={playerIndex} className="race-lane-card">
+                        <article
+                          key={playerIndex}
+                          className={`race-lane-card depth-card ${
+                            onlineRaceDash.progress[playerIndex as PlayerIndex] > 0 ? 'is-moving' : ''
+                          } ${
+                            onlineRaceDash.winner === playerIndex ? 'is-winning' : ''
+                          }`}
+                        >
                           <div className="race-lane-header">
                             <strong>{onlinePlayerName(playerIndex as PlayerIndex)}</strong>
                             <span>{onlineRaceDash.taps[playerIndex as PlayerIndex]} taps</span>
                           </div>
                           <div className="race-track">
+                            <div className="race-track-floor"></div>
                             <div
                               className="race-runner"
                               style={{
@@ -5511,9 +5523,13 @@ function App() {
                                   onlineSession.colors[playerIndex as PlayerIndex],
                               } as CSSProperties}
                             >
+                              <span className="race-runner-shadow"></span>
+                              <span className="race-runner-core"></span>
                               <span className="race-runner-emoji">
                                 {playerIndex === 0 ? '🏃' : '💨'}
                               </span>
+                              <span className="race-runner-dust dust-one"></span>
+                              <span className="race-runner-dust dust-two"></span>
                             </div>
                           </div>
                           <p className="panel-note">
@@ -5522,11 +5538,14 @@ function App() {
                         </article>
                       ))}
                     </div>
+                    </div>
 
                     {currentOnlinePlayerIndex !== null && onlineRacePhase !== 'result' ? (
                       <button
                         type="button"
-                        className="primary-button race-button"
+                        className={`primary-button race-button depth-button ${
+                          onlineRacePhase === 'racing' ? 'is-hot' : ''
+                        }`}
                         onClick={() => void pushOnlineRaceStep()}
                         disabled={onlineRacePhase !== 'racing'}
                       >
@@ -5635,7 +5654,7 @@ function App() {
                     />
                   ) : null}
                   {onlineMineMatrix.phase === 'setup' && currentOnlinePlayerIndex !== null ? (
-                    <div className="online-stack">
+                    <div className="online-stack game-stage-3d">
                       <h3>Plant 3 hidden mines</h3>
                       <div className="scoreboard-row">
                         {[0, 1].map((playerIndex) => (
@@ -5645,7 +5664,7 @@ function App() {
                           </div>
                         ))}
                       </div>
-                      <div className="mine-grid">
+                      <div className="mine-grid mine-grid-3d">
                         {GRID_CELLS.map((cell) => {
                           const selected = includesCell(
                             onlineMineMatrix.plantingSelections[currentOnlinePlayerIndex],
@@ -5655,7 +5674,7 @@ function App() {
                             <button
                               key={cell}
                               type="button"
-                              className={`mine-cell ${selected ? 'selected' : ''}`}
+                              className={`mine-cell ${selected ? 'selected is-lifted' : ''}`}
                               onClick={() => void toggleOnlineMineSelection(cell)}
                               disabled={onlineMineMatrix.ready[currentOnlinePlayerIndex]}
                             >
@@ -5678,7 +5697,7 @@ function App() {
                     </div>
                   ) : null}
                   {onlineMineMatrix.phase === 'play' && currentOnlinePlayerIndex !== null ? (
-                    <div className="online-stack">
+                    <div className="online-stack game-stage-3d">
                       <h3>
                         {onlineMineMatrix.currentTurn === currentOnlinePlayerIndex
                           ? 'Your turn to bite'
@@ -5694,7 +5713,7 @@ function App() {
                           <span>{onlineMineMatrix.mineHits[1]} strikes</span>
                         </div>
                       </div>
-                      <div className="mine-grid">
+                      <div className="mine-grid mine-grid-3d">
                         {GRID_CELLS.map((cell) => {
                           const defender = partnerOf(onlineMineMatrix.currentTurn)
                           const revealed = includesCell(onlineMineMatrix.revealedBoards[defender], cell)
@@ -5703,7 +5722,9 @@ function App() {
                             <button
                               key={cell}
                               type="button"
-                              className={`mine-cell ${revealed ? (isMine ? 'mine-hit' : 'safe-hit') : ''}`}
+                              className={`mine-cell ${
+                                revealed ? (isMine ? 'mine-hit' : 'safe-hit') : ''
+                              }`}
                               onClick={() => void revealOnlineMineCell(cell)}
                               disabled={revealed || onlineMineMatrix.currentTurn !== currentOnlinePlayerIndex}
                             >
@@ -5716,9 +5737,9 @@ function App() {
                     </div>
                   ) : null}
                   {onlineMineMatrix.phase === 'reveal' && onlineMineMatrix.pendingTarget !== null ? (
-                    <div className="online-stack">
+                    <div className="online-stack game-stage-3d">
                       <h3>{onlineMineMatrix.pendingHit ? 'Mine hit' : 'Safe bite'}</h3>
-                      <div className="mine-grid">
+                      <div className="mine-grid mine-grid-3d reveal-board">
                         {GRID_CELLS.map((cell) => {
                           const targetBoard = onlineMineMatrix.pendingTarget as PlayerIndex
                           const revealed = includesCell(onlineMineMatrix.revealedBoards[targetBoard], cell)
@@ -5728,7 +5749,9 @@ function App() {
                             <button
                               key={cell}
                               type="button"
-                              className={`mine-cell ${revealed ? (isMine ? 'mine-hit' : 'safe-hit') : ''} ${isPending ? 'mine-focus' : ''}`}
+                              className={`mine-cell ${
+                                revealed ? (isMine ? 'mine-hit' : 'safe-hit') : ''
+                              } ${isPending ? 'mine-focus pop-3d' : ''}`}
                               disabled
                             >
                               {revealed ? (isMine ? MINE_ICON : SAFE_ICON) : '?'}
@@ -5739,6 +5762,12 @@ function App() {
                       <p className={`mine-reveal-banner ${onlineMineMatrix.pendingHit ? 'danger' : 'safe'}`}>
                         {onlineMineMatrix.pendingHit ? `${MINE_ICON} Boom` : `${SAFE_ICON} Safe`}
                       </p>
+                      <div className={`mine-burst ${onlineMineMatrix.pendingHit ? 'danger' : 'safe'}`}>
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                      </div>
                       <p className="panel-note">{onlineMineMatrix.statusMessage}</p>
                       <button type="button" className="primary-button" onClick={advanceOnlineMineReveal}>
                         {onlineMineMatrix.resolvingResult ? 'Show Result' : 'Next Turn'}
@@ -5906,7 +5935,7 @@ function App() {
                     </div>
                   ) : null}
                   {onlineNeverHaveI.phase === 'reveal' ? (
-                    <div className="online-stack">
+                    <div className="online-stack game-stage-3d">
                       <div className="scoreboard-row">
                         <div className="score-chip">
                           <strong>{onlinePlayerName(0)}</strong>
@@ -6070,7 +6099,7 @@ function App() {
                         </div>
                       </div>
                       <h3>Choose the hidden word</h3>
-                      <form className="duel-form" onSubmit={lockOnlineHangmanWord}>
+                      <form className="duel-form depth-card" onSubmit={lockOnlineHangmanWord}>
                         <input
                           type="password"
                           placeholder="Secret word"
@@ -6089,7 +6118,7 @@ function App() {
                     </div>
                   ) : null}
                   {onlineHangman.phase === 'guess' ? (
-                    <div className="online-stack">
+                    <div className="online-stack game-stage-3d">
                       <div className="scoreboard-row">
                         <div className="score-chip">
                           <strong>Round</strong>
@@ -6105,7 +6134,10 @@ function App() {
                         </div>
                       </div>
                       <div className="hangman-scene">
-                        <div className={`hangman-stage stage-${onlineHangman.wrongLetters.length}`}>
+                        <div className={`hangman-stage stage-${onlineHangman.wrongLetters.length} cinematic-stage`}>
+                          <div className="scene-glow scene-glow-left"></div>
+                          <div className="scene-glow scene-glow-right"></div>
+                          <div className="rope-shine"></div>
                           <div className="gallows-base"></div>
                           <div className="gallows-pole"></div>
                           <div className="gallows-beam"></div>
@@ -6118,6 +6150,23 @@ function App() {
                             <div className="hanger-leg leg-left"></div>
                             <div className="hanger-leg leg-right"></div>
                           </div>
+                          <div className="panic-particles">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                          </div>
+                        </div>
+                        <div className="hangman-bubble depth-card">
+                          <strong>Rescue scene</strong>
+                          <p>
+                            {onlineHangman.wrongLetters.length === 0
+                              ? 'The rope is still calm. Start with a strong first guess.'
+                              : onlineHangman.wrongLetters.length < 3
+                                ? 'The stage is wobbling. Keep the rescue on track.'
+                                : onlineHangman.wrongLetters.length < 6
+                                  ? 'The drama meter is climbing. One smart letter can swing it back.'
+                                  : 'Maximum chaos reached. The scene is fully panicking.'}
+                          </p>
                         </div>
                       </div>
                       <h3 className="hangman-mask">{maskHangmanWord(onlineHangman.word, onlineHangman.guessedLetters)}</h3>
